@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
-import { salesChartData, kpiMetrics, recentOrders } from '@/data/mockData'
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
@@ -33,22 +32,23 @@ function calcChange(current, previous) {
   return Math.round(((current - previous) / previous) * 100 * 10) / 10
 }
 
-const FALLBACK = {
-  orders: recentOrders,
-  kpis: kpiMetrics,
-  chartData: salesChartData,
+const EMPTY_STATE = {
+  orders: [],
+  kpis: {},
+  chartData: [],
   loading: false,
   hasRealData: false,
 }
 
 export function useShopifyOrders() {
-  const [state, setState] = useState({ ...FALLBACK, loading: isSupabaseConfigured })
+  const [state, setState] = useState({ ...EMPTY_STATE, loading: isSupabaseConfigured })
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState('')
 
   const fetchData = useCallback(async () => {
     if (!isSupabaseConfigured) return
 
     try {
-      // Fetch last 60 days to calculate period-over-period change
       const sixtyDaysAgo = new Date()
       sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
       const thirtyDaysAgo = new Date()
@@ -61,8 +61,9 @@ export function useShopifyOrders() {
         .order('shopify_created_at', { ascending: false })
 
       if (error) throw error
+
       if (!orders60d?.length) {
-        setState({ ...FALLBACK, loading: false })
+        setState({ ...EMPTY_STATE })
         return
       }
 
@@ -77,17 +78,16 @@ export function useShopifyOrders() {
       const previousRevenue = sumRevenue(previous)
       const currentOrders = current.length
       const previousOrders = previous.length
-      const currentTicket = currentOrders ? currentRevenue / currentOrders : 0
+      const currentTicket = currentOrders ? Math.round((currentRevenue / currentOrders) * 100) / 100 : 0
       const previousTicket = previousOrders ? previousRevenue / previousOrders : 0
 
       setState({
         orders: current.slice(0, 10),
         kpis: {
-          ventas:   { value: currentRevenue, change: calcChange(currentRevenue, previousRevenue), prefix: '€' },
+          ventas:    { value: currentRevenue,               change: calcChange(currentRevenue, previousRevenue), prefix: '€' },
+          pedidos:   { value: currentOrders,                change: calcChange(currentOrders, previousOrders),   prefix: '' },
+          ticket:    { value: currentTicket,                change: calcChange(currentTicket, previousTicket),   prefix: '€' },
           beneficio: { value: Math.round(currentRevenue * 0.25), change: calcChange(currentRevenue, previousRevenue), prefix: '€' },
-          pedidos:  { value: currentOrders, change: calcChange(currentOrders, previousOrders), prefix: '' },
-          roas:     kpiMetrics.roas,
-          ticket:   { value: currentTicket, change: calcChange(currentTicket, previousTicket), prefix: '€' },
         },
         chartData: buildChartData([...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at))),
         loading: false,
@@ -95,9 +95,29 @@ export function useShopifyOrders() {
       })
     } catch (err) {
       console.error('[useShopifyOrders]', err)
-      setState({ ...FALLBACK, loading: false })
+      setState({ ...EMPTY_STATE })
     }
   }, [])
+
+  const sync = useCallback(async () => {
+    setSyncing(true)
+    setSyncError('')
+    try {
+      const res = await fetch('/.netlify/functions/shopify-fetch-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Error al sincronizar')
+      }
+      await fetchData()
+    } catch (err) {
+      setSyncError(err.message)
+    } finally {
+      setSyncing(false)
+    }
+  }, [fetchData])
 
   useEffect(() => {
     if (!isSupabaseConfigured) return
@@ -111,5 +131,5 @@ export function useShopifyOrders() {
     return () => supabase.removeChannel(channel)
   }, [fetchData])
 
-  return state
+  return { ...state, syncing, syncError, sync }
 }

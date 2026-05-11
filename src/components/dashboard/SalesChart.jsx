@@ -7,8 +7,6 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
-import { salesChartData } from '@/data/mockData'
-
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
@@ -30,7 +28,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 }
 
 export default function SalesChart({ data }) {
-  const chartData = data ?? salesChartData
+  const chartData = data ?? []
 
   return (
     <div className="card p-5">

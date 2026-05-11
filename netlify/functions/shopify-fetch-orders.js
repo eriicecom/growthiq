@@ -1,0 +1,147 @@
+import { createClient } from '@supabase/supabase-js'
+import ws from 'ws'
+
+const API = '2025-07'
+
+function mapOrder(order) {
+  const firstName = order.customer?.first_name || ''
+  const lastName = order.customer?.last_name || ''
+  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente desconocido'
+
+  return {
+    shopify_id: String(order.id),
+    order_number: `#${order.order_number}`,
+    customer_name: customerName,
+    customer_email: order.customer?.email || '',
+    amount: parseFloat(order.total_price) || 0,
+    currency: order.currency || 'EUR',
+    financial_status: order.financial_status || 'pending',
+    fulfillment_status: order.fulfillment_status || 'unfulfilled',
+    line_items: (order.line_items || []).map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+    })),
+    source_name: order.source_name || 'web',
+    shopify_created_at: order.created_at,
+    updated_at: new Date().toISOString(),
+  }
+}
+
+export const handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' }
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseKey) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Variables de entorno de Supabase no configuradas.' }),
+    }
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } })
+
+  // Auto-detect the most recently updated active connection
+  const { data: conn, error: connErr } = await supabase
+    .from('shopify_connections')
+    .select('shop_domain, access_token')
+    .eq('is_active', true)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (connErr || !conn) {
+    return {
+      statusCode: 404,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'No hay ninguna tienda Shopify conectada. Ve a Configuración → Shopify.' }),
+    }
+  }
+
+  const { shop_domain: shopDomain, access_token } = conn
+  const accessToken = access_token.trim()
+  const startTime = Date.now()
+
+  try {
+    let allOrders = []
+    let nextUrl = `https://${shopDomain}/admin/api/${API}/orders.json?status=any&limit=250`
+
+    while (nextUrl) {
+      // Time-guard: stay under Netlify's 10 s function limit
+      if (Date.now() - startTime > 8500) break
+
+      const res = await fetch(nextUrl, {
+        headers: { 'X-Shopify-Access-Token': accessToken },
+      })
+
+      if (!res.ok) {
+        const errText = await res.text()
+        console.error('[fetch-orders] Shopify error', res.status, errText.slice(0, 200))
+
+        if (res.status === 401 || res.status === 403) {
+          return {
+            statusCode: 400,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: `Sin permiso para leer pedidos (Shopify ${res.status}). Añade el scope "read_orders" en tu app de Shopify y obtén un nuevo token.`,
+            }),
+          }
+        }
+
+        return {
+          statusCode: 502,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error: `Error de Shopify (${res.status})` }),
+        }
+      }
+
+      const { orders } = await res.json()
+
+      if (orders?.length) {
+        allOrders = allOrders.concat(orders)
+
+        const { error: upsertErr } = await supabase
+          .from('shopify_orders')
+          .upsert(orders.map(mapOrder), { onConflict: 'shopify_id' })
+
+        if (upsertErr) {
+          return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: `Error guardando pedidos: ${upsertErr.message}` }),
+          }
+        }
+      }
+
+      const link = res.headers.get('link') || ''
+      const match = link.match(/<([^>]+)>; rel="next"/)
+      nextUrl = match ? match[1] : null
+    }
+
+    await supabase
+      .from('shopify_connections')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('shop_domain', shopDomain)
+
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ synced: allOrders.length, shop: shopDomain }),
+    }
+  } catch (err) {
+    console.error('[fetch-orders] excepción:', err.message)
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: `Error interno: ${err.message}` }),
+    }
+  }
+}
