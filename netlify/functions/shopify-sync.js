@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import ws from 'ws'
 
 const API = '2025-07'
 
@@ -72,7 +73,9 @@ export const handler = async (event) => {
     }
   }
 
-  const supabase = createClient(supabaseUrl, supabaseKey)
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    realtime: { transport: ws },
+  })
 
   try {
     const { data: conn, error: connErr } = await supabase
