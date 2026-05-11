@@ -1,59 +1,67 @@
-import { Euro, TrendingUp, ShoppingBag, Megaphone } from 'lucide-react'
+import { Euro, TrendingUp, ShoppingBag, Megaphone, Ticket } from 'lucide-react'
 import KPICard from '@/components/dashboard/KPICard'
 import SalesChart from '@/components/dashboard/SalesChart'
 import OrdersTable from '@/components/dashboard/OrdersTable'
-import { kpiMetrics, adChannels } from '@/data/mockData'
-
-const kpiCards = [
-  {
-    title: 'Ventas Totales',
-    key: 'ventas',
-    icon: Euro,
-    color: 'brand',
-  },
-  {
-    title: 'Beneficio Neto',
-    key: 'beneficio',
-    icon: TrendingUp,
-    color: 'emerald',
-  },
-  {
-    title: 'Pedidos',
-    key: 'pedidos',
-    icon: ShoppingBag,
-    color: 'violet',
-  },
-  {
-    title: 'ROAS Global',
-    key: 'roas',
-    icon: Megaphone,
-    color: 'amber',
-  },
-]
+import { adChannels } from '@/data/mockData'
+import { useShopifyOrders } from '@/hooks/useShopifyOrders'
 
 export default function Dashboard() {
+  const { orders, kpis, chartData, loading, hasRealData } = useShopifyOrders()
+
+  const kpiCards = [
+    {
+      title: 'Ventas Totales',
+      key: 'ventas',
+      icon: Euro,
+      color: 'brand',
+    },
+    {
+      title: hasRealData ? 'Ticket Medio' : 'Beneficio Neto',
+      key: hasRealData ? 'ticket' : 'beneficio',
+      icon: TrendingUp,
+      color: 'emerald',
+    },
+    {
+      title: 'Pedidos',
+      key: 'pedidos',
+      icon: ShoppingBag,
+      color: 'violet',
+    },
+    {
+      title: 'ROAS Global',
+      key: 'roas',
+      icon: Megaphone,
+      color: 'amber',
+    },
+  ]
+
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto">
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {kpiCards.map(({ title, key, icon, color }) => (
-          <KPICard
-            key={key}
-            title={title}
-            value={kpiMetrics[key].value}
-            change={kpiMetrics[key].change}
-            prefix={kpiMetrics[key].prefix}
-            suffix={kpiMetrics[key].suffix ?? ''}
-            icon={icon}
-            color={color}
-          />
-        ))}
+        {kpiCards.map(({ title, key, icon, color }) => {
+          const metric = kpis[key]
+          if (!metric) return null
+          return (
+            <KPICard
+              key={key}
+              title={title}
+              value={metric.value}
+              change={metric.change}
+              prefix={metric.prefix}
+              suffix={metric.suffix ?? ''}
+              icon={icon}
+              color={color}
+              loading={loading}
+            />
+          )
+        })}
       </div>
 
       {/* Chart + Ad breakdown */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2">
-          <SalesChart />
+          <SalesChart data={chartData} />
         </div>
 
         {/* Ad channels mini table */}
@@ -97,7 +105,7 @@ export default function Dashboard() {
       </div>
 
       {/* Orders table */}
-      <OrdersTable />
+      <OrdersTable orders={orders} loading={loading} hasRealData={hasRealData} />
     </div>
   )
 }

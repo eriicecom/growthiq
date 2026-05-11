@@ -1,15 +1,139 @@
-import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette } from 'lucide-react'
+import { useState } from 'react'
+import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ChevronLeft, ShoppingBag } from 'lucide-react'
+import ShopifySettings from './settings/ShopifySettings'
 
-const sections = [
+// Each integration has an id used to navigate to its detail panel
+const integrations = [
+  {
+    id: 'shopify',
+    icon: ShoppingBag,
+    label: 'Shopify',
+    desc: 'Sincroniza pedidos y ventas en tiempo real',
+    badge: null,
+  },
+  {
+    id: null,
+    icon: SettingsIcon,
+    label: 'Meta Ads',
+    desc: 'Facebook e Instagram Ads',
+    badge: 'Próximamente',
+  },
+  {
+    id: null,
+    icon: SettingsIcon,
+    label: 'TikTok Ads',
+    desc: 'TikTok for Business',
+    badge: 'Próximamente',
+  },
+  {
+    id: null,
+    icon: SettingsIcon,
+    label: 'Google Ads',
+    desc: 'Google Ads y Analytics',
+    badge: 'Próximamente',
+  },
+]
+
+const mainSections = [
   { icon: Store,      label: 'Tienda',           desc: 'Nombre, moneda, zona horaria' },
-  { icon: Key,        label: 'Integraciones',     desc: 'Shopify, Meta, TikTok, Google' },
   { icon: CreditCard, label: 'Plan y Facturación', desc: 'Suscripción y método de pago' },
   { icon: Bell,       label: 'Notificaciones',    desc: 'Alertas de KPIs y anomalías' },
   { icon: Users,      label: 'Equipo',            desc: 'Invita miembros y gestiona roles' },
   { icon: Palette,    label: 'Apariencia',        desc: 'Tema, idioma y preferencias' },
 ]
 
+function Breadcrumb({ crumbs, onNavigate }) {
+  return (
+    <nav className="flex items-center gap-1.5 text-xs text-white/40 mb-6">
+      {crumbs.map((crumb, i) => (
+        <span key={crumb.label} className="flex items-center gap-1.5">
+          {i > 0 && <ChevronRight size={12} />}
+          {i < crumbs.length - 1 ? (
+            <button
+              onClick={() => onNavigate(crumb.view)}
+              className="hover:text-white/70 transition-colors"
+            >
+              {crumb.label}
+            </button>
+          ) : (
+            <span className="text-white/70 font-medium">{crumb.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  )
+}
+
 export default function Settings() {
+  const [view, setView] = useState('home') // 'home' | 'integrations' | 'shopify'
+
+  function navigate(v) { setView(v) }
+
+  if (view === 'shopify') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Breadcrumb
+          crumbs={[
+            { label: 'Ajustes', view: 'home' },
+            { label: 'Integraciones', view: 'integrations' },
+            { label: 'Shopify', view: 'shopify' },
+          ]}
+          onNavigate={navigate}
+        />
+        <ShopifySettings />
+      </div>
+    )
+  }
+
+  if (view === 'integrations') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Breadcrumb
+          crumbs={[
+            { label: 'Ajustes', view: 'home' },
+            { label: 'Integraciones', view: 'integrations' },
+          ]}
+          onNavigate={navigate}
+        />
+
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-white">Integraciones</h2>
+          <p className="text-sm text-white/40 mt-1">Conecta tus canales de ventas y publicidad</p>
+        </div>
+
+        <div className="space-y-3">
+          {integrations.map(({ id, icon: Icon, label, desc, badge }) => (
+            <button
+              key={label}
+              onClick={() => id && navigate(id)}
+              disabled={!id}
+              className="card w-full flex items-center gap-4 px-5 py-4 hover:border-white/10 hover:bg-surface-700 transition-all text-left group disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-white/70 transition-colors shrink-0">
+                <Icon size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-white">{label}</p>
+                  {badge && (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-white/5 text-white/30">
+                      {badge}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-white/40 mt-0.5">{desc}</p>
+              </div>
+              {id && (
+                <ChevronRight size={15} className="text-white/20 group-hover:text-white/40 transition-colors" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // Home view
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div className="mb-6">
@@ -17,23 +141,37 @@ export default function Settings() {
         <p className="text-sm text-white/40 mt-1">Configura tu cuenta, integraciones y preferencias</p>
       </div>
 
-      {sections.map(({ icon: Icon, label, desc }) => (
+      {/* Integrations — clickable */}
+      <button
+        onClick={() => navigate('integrations')}
+        className="card w-full flex items-center gap-4 px-5 py-4 hover:border-white/10 hover:bg-surface-700 transition-all text-left group"
+      >
+        <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-white/70 transition-colors shrink-0">
+          <Key size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-white">Integraciones</p>
+          <p className="text-xs text-white/40 mt-0.5">Shopify, Meta, TikTok, Google</p>
+        </div>
+        <ChevronRight size={15} className="text-white/20 group-hover:text-white/40 transition-colors" />
+      </button>
+
+      {mainSections.map(({ icon: Icon, label, desc }) => (
         <button
           key={label}
-          className="card w-full flex items-center gap-4 px-5 py-4 hover:border-white/10 hover:bg-surface-700 transition-all text-left group"
+          className="card w-full flex items-center gap-4 px-5 py-4 hover:border-white/10 hover:bg-surface-700 transition-all text-left group opacity-60 cursor-not-allowed"
+          disabled
         >
-          <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-white/70 transition-colors shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-white/40 shrink-0">
             <Icon size={18} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white">{label}</p>
             <p className="text-xs text-white/40 mt-0.5">{desc}</p>
           </div>
-          <div className="text-white/20 group-hover:text-white/40 transition-colors">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M6 12l4-4-4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-white/5 text-white/20">
+            Próximamente
+          </span>
         </button>
       ))}
 

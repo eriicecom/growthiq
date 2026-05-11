@@ -6,7 +6,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
 } from 'recharts'
 import { salesChartData } from '@/data/mockData'
 
@@ -30,7 +29,9 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
-export default function SalesChart() {
+export default function SalesChart({ data }) {
+  const chartData = data ?? salesChartData
+
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-5">
@@ -52,7 +53,7 @@ export default function SalesChart() {
       </div>
 
       <ResponsiveContainer width="100%" height={260}>
-        <AreaChart data={salesChartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="gradVentas" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#4f6ef7" stopOpacity={0.15} />

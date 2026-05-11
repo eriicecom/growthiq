@@ -11,7 +11,7 @@ function formatValue(value, prefix, suffix) {
   return prefix + new Intl.NumberFormat('es-ES').format(value)
 }
 
-export default function KPICard({ title, value, change, prefix = '', suffix = '', icon: Icon, color = 'brand' }) {
+export default function KPICard({ title, value, change, prefix = '', suffix = '', icon: Icon, color = 'brand', loading = false }) {
   const positive = change >= 0
 
   const colorMap = {
@@ -33,16 +33,25 @@ export default function KPICard({ title, value, change, prefix = '', suffix = ''
       </div>
 
       <div>
-        <p className="text-2xl font-semibold text-white tracking-tight">
-          {formatValue(value, prefix, suffix)}
-        </p>
-        <div className={clsx(
-          'flex items-center gap-1 mt-1.5 text-xs font-medium',
-          positive ? 'text-emerald-400' : 'text-red-400'
-        )}>
-          {positive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-          <span>{positive ? '+' : ''}{change}% vs mes anterior</span>
-        </div>
+        {loading ? (
+          <div className="space-y-2">
+            <div className="h-7 w-28 bg-white/5 rounded animate-pulse" />
+            <div className="h-4 w-20 bg-white/5 rounded animate-pulse" />
+          </div>
+        ) : (
+          <>
+            <p className="text-2xl font-semibold text-white tracking-tight">
+              {formatValue(value, prefix, suffix)}
+            </p>
+            <div className={clsx(
+              'flex items-center gap-1 mt-1.5 text-xs font-medium',
+              positive ? 'text-emerald-400' : 'text-red-400'
+            )}>
+              {positive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+              <span>{positive ? '+' : ''}{change}% vs mes anterior</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
