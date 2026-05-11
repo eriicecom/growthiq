@@ -37,6 +37,8 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Cuerpo de solicitud inválido' }) }
   }
 
+  shopDomain = (shopDomain || '').replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase()
+
   // Support both SUPABASE_URL and VITE_SUPABASE_URL env var names
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const supabaseKey =
@@ -69,7 +71,7 @@ export const handler = async (event) => {
 
     // Get total order count for progress tracking
     const countRes = await fetch(
-      `https://${shopDomain}/admin/api/2024-01/orders/count.json?status=any`,
+      `https://${shopDomain}/admin/api/2025-07/orders/count.json?status=any`,
       { headers: { 'X-Shopify-Access-Token': accessToken } }
     )
     const { count: totalOrders = 0 } = countRes.ok ? await countRes.json() : {}
@@ -82,7 +84,7 @@ export const handler = async (event) => {
 
     // Paginate through all orders
     let allOrders = []
-    let nextUrl = `https://${shopDomain}/admin/api/2024-01/orders.json?status=any&limit=250`
+    let nextUrl = `https://${shopDomain}/admin/api/2025-07/orders.json?status=any&limit=250`
 
     while (nextUrl) {
       const res = await fetch(nextUrl, {
@@ -119,7 +121,7 @@ export const handler = async (event) => {
     if (siteUrl) {
       const webhookBase = `${siteUrl}/.netlify/functions/shopify-webhook`
       for (const topic of ['orders/create', 'orders/updated']) {
-        await fetch(`https://${shopDomain}/admin/api/2024-01/webhooks.json`, {
+        await fetch(`https://${shopDomain}/admin/api/2025-07/webhooks.json`, {
           method: 'POST',
           headers: {
             'X-Shopify-Access-Token': accessToken,

@@ -160,6 +160,7 @@ export default function ShopifySettings() {
 
   async function handleResync() {
     if (!connection) return
+    setError('')
     setStep('syncing')
     setSyncProgress(0)
     setSyncCount(0)
@@ -172,7 +173,19 @@ export default function ShopifySettings() {
     })
 
     clearInterval(pollRef.current)
-    const { synced = 0 } = syncRes.ok ? await syncRes.json() : {}
+
+    if (!syncRes.ok) {
+      let syncErrMsg = 'Error durante la sincronización'
+      try {
+        const syncData = await syncRes.json()
+        if (syncData?.error) syncErrMsg = syncData.error
+      } catch { /* respuesta no-JSON (timeout de Netlify) */ }
+      setError(syncErrMsg)
+      setStep('error')
+      return
+    }
+
+    const { synced = 0 } = await syncRes.json()
     setSyncProgress(100)
     setSyncCount(synced)
     setStep('done')

@@ -19,7 +19,7 @@ export const handler = async (event) => {
   const domain = shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
   try {
-    const res = await fetch(`https://${domain}/admin/api/2024-01/shop.json`, {
+    const res = await fetch(`https://${domain}/admin/api/2025-07/shop.json`, {
       headers: { 'X-Shopify-Access-Token': accessToken },
     })
 
