@@ -135,8 +135,12 @@ export default function ShopifySettings() {
     clearInterval(pollRef.current)
 
     if (!syncRes.ok) {
-      const syncData = await syncRes.json()
-      setError(syncData.error || 'Error durante la sincronización')
+      let syncErrMsg = 'Error durante la sincronización'
+      try {
+        const syncData = await syncRes.json()
+        if (syncData?.error) syncErrMsg = syncData.error
+      } catch { /* respuesta no-JSON — usar mensaje genérico */ }
+      setError(syncErrMsg)
       setStep('error')
       return
     }

@@ -1,10 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
-
 function mapOrder(order) {
   const firstName = order.customer?.first_name || ''
   const lastName = order.customer?.last_name || ''
@@ -42,87 +37,117 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Cuerpo de solicitud inválido' }) }
   }
 
-  // Read credentials from Supabase (never exposed to the client after initial save)
-  const { data: conn, error: connErr } = await supabase
-    .from('shopify_connections')
-    .select('access_token')
-    .eq('shop_domain', shopDomain)
-    .single()
+  // Support both SUPABASE_URL and VITE_SUPABASE_URL env var names
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY
 
-  if (connErr || !conn) {
-    return { statusCode: 404, body: JSON.stringify({ error: 'Tienda no encontrada. Conecta primero.' }) }
+  if (!supabaseUrl || !supabaseKey) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Variables de entorno de Supabase no configuradas (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)' }),
+    }
   }
 
-  const { access_token: accessToken } = conn
+  const supabase = createClient(supabaseUrl, supabaseKey)
 
-  // Get total order count for progress tracking
-  const countRes = await fetch(
-    `https://${shopDomain}/admin/api/2024-01/orders/count.json?status=any`,
-    { headers: { 'X-Shopify-Access-Token': accessToken } }
-  )
-  const { count: totalOrders = 0 } = countRes.ok ? await countRes.json() : {}
+  try {
+    // Read credentials from Supabase (never exposed to the client after initial save)
+    const { data: conn, error: connErr } = await supabase
+      .from('shopify_connections')
+      .select('access_token')
+      .eq('shop_domain', shopDomain)
+      .single()
 
-  // Save total to connections table so the frontend can track progress
-  await supabase
-    .from('shopify_connections')
-    .update({ sync_total: totalOrders })
-    .eq('shop_domain', shopDomain)
-
-  // Paginate through all orders
-  let allOrders = []
-  let nextUrl = `https://${shopDomain}/admin/api/2024-01/orders.json?status=any&limit=250`
-
-  while (nextUrl) {
-    const res = await fetch(nextUrl, {
-      headers: { 'X-Shopify-Access-Token': accessToken },
-    })
-
-    if (!res.ok) {
-      return { statusCode: 502, body: JSON.stringify({ error: `Error al obtener pedidos (${res.status})` }) }
+    if (connErr || !conn) {
+      return { statusCode: 404, body: JSON.stringify({ error: 'Tienda no encontrada. Conecta primero.' }) }
     }
 
-    const { orders } = await res.json()
-    if (orders?.length) {
-      allOrders = allOrders.concat(orders)
+    const { access_token: accessToken } = conn
 
-      // Upsert each page immediately so the client sees progress in real time
-      const mapped = orders.map(mapOrder)
-      await supabase.from('shopify_orders').upsert(mapped, { onConflict: 'shopify_id' })
-    }
+    // Get total order count for progress tracking
+    const countRes = await fetch(
+      `https://${shopDomain}/admin/api/2024-01/orders/count.json?status=any`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    )
+    const { count: totalOrders = 0 } = countRes.ok ? await countRes.json() : {}
 
-    // Follow pagination link
-    const link = res.headers.get('link') || ''
-    const match = link.match(/<([^>]+)>; rel="next"/)
-    nextUrl = match ? match[1] : null
-  }
+    // Save total to connections table so the frontend can track progress
+    await supabase
+      .from('shopify_connections')
+      .update({ sync_total: totalOrders })
+      .eq('shop_domain', shopDomain)
 
-  // Register webhooks for real-time order updates
-  const siteUrl = process.env.URL || process.env.DEPLOY_URL
-  if (siteUrl) {
-    const webhookBase = `${siteUrl}/.netlify/functions/shopify-webhook`
-    for (const topic of ['orders/create', 'orders/updated']) {
-      await fetch(`https://${shopDomain}/admin/api/2024-01/webhooks.json`, {
-        method: 'POST',
-        headers: {
-          'X-Shopify-Access-Token': accessToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          webhook: { topic, address: webhookBase, format: 'json' },
-        }),
+    // Paginate through all orders
+    let allOrders = []
+    let nextUrl = `https://${shopDomain}/admin/api/2024-01/orders.json?status=any&limit=250`
+
+    while (nextUrl) {
+      const res = await fetch(nextUrl, {
+        headers: { 'X-Shopify-Access-Token': accessToken },
       })
+
+      if (!res.ok) {
+        return { statusCode: 502, body: JSON.stringify({ error: `Error al obtener pedidos de Shopify (${res.status})` }) }
+      }
+
+      const { orders } = await res.json()
+      if (orders?.length) {
+        allOrders = allOrders.concat(orders)
+
+        // Upsert each page immediately so the client sees progress in real time
+        const mapped = orders.map(mapOrder)
+        const { error: upsertErr } = await supabase
+          .from('shopify_orders')
+          .upsert(mapped, { onConflict: 'shopify_id' })
+
+        if (upsertErr) {
+          return { statusCode: 500, body: JSON.stringify({ error: `Error al guardar pedidos: ${upsertErr.message}` }) }
+        }
+      }
+
+      // Follow pagination link
+      const link = res.headers.get('link') || ''
+      const match = link.match(/<([^>]+)>; rel="next"/)
+      nextUrl = match ? match[1] : null
     }
-  }
 
-  // Mark connection as active
-  await supabase
-    .from('shopify_connections')
-    .update({ is_active: true, last_synced_at: new Date().toISOString() })
-    .eq('shop_domain', shopDomain)
+    // Register webhooks for real-time order updates
+    const siteUrl = process.env.URL || process.env.DEPLOY_URL
+    if (siteUrl) {
+      const webhookBase = `${siteUrl}/.netlify/functions/shopify-webhook`
+      for (const topic of ['orders/create', 'orders/updated']) {
+        await fetch(`https://${shopDomain}/admin/api/2024-01/webhooks.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            webhook: { topic, address: webhookBase, format: 'json' },
+          }),
+        })
+      }
+    }
 
-  return {
-    statusCode: 200,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ synced: allOrders.length }),
+    // Mark connection as active
+    await supabase
+      .from('shopify_connections')
+      .update({ is_active: true, last_synced_at: new Date().toISOString() })
+      .eq('shop_domain', shopDomain)
+
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ synced: allOrders.length }),
+    }
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: `Error interno durante la sincronización: ${err.message}` }),
+    }
   }
 }
