@@ -131,7 +131,6 @@ export function useShopifyOrders(period = '30') {
         { data: costsRows },
         { data: metaRows },
         { data: metaConn },
-        { data: tiktokRows },
       ] = await Promise.all([
         supabase
           .from('shopify_orders')
@@ -145,20 +144,20 @@ export function useShopifyOrders(period = '30') {
           .limit(1)
           .maybeSingle(),
         supabase.from('product_costs').select('shopify_product_id, quantity, cost'),
-        // meta_ad_spend / tiktok_ad_spend may not exist yet — errors return null data
         supabase.from('meta_ad_spend').select('date, spend').gte('date', compareStartDate),
         supabase.from('meta_connections').select('user_id').eq('is_active', true).limit(1).maybeSingle(),
-        supabase.from('tiktok_ad_spend').select('date, spend').gte('date', compareStartDate),
+        // tiktok_ad_spend is not queried here — table will not exist until TikTok
+        // integration is built; querying it would produce a 404 on every page load.
       ])
 
       if (ordersError) throw ordersError
 
-      const costsMap       = buildCostsMap(costsRows)
-      const metaConnected  = !!metaConn
+      const costsMap        = buildCostsMap(costsRows)
+      const metaConnected   = !!metaConn
       const tiktokConnected = false
 
-      const safeMetaRows   = metaRows   || []
-      const safeTikTokRows = tiktokRows || []
+      const safeMetaRows   = metaRows || []
+      const safeTikTokRows = []        // TikTok not yet integrated
 
       // ── Ad spend per day (for chart) ─────────────────────────────────────
       const adSpendByDate = {}
@@ -313,10 +312,15 @@ export function useShopifyOrders(period = '30') {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'shopify_orders', filter: `user_id=eq.${uid}` },
-          () => fetchData()
+          (payload) => {
+            console.log('[realtime] change received', payload)
+            fetchData()
+          }
         )
         .subscribe((status) => {
-          if (status === 'CHANNEL_ERROR') console.error('[realtime] shopify_orders subscription error')
+          console.log('[realtime] status:', status)
+          if (status === 'SUBSCRIBED')    console.log('[realtime] subscribed to shopify_orders')
+          if (status === 'CHANNEL_ERROR') console.error('[realtime] shopify_orders channel error')
         })
     })
 
