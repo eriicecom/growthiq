@@ -9,7 +9,7 @@ import SalesChart from '@/components/dashboard/SalesChart'
 import OrdersTable from '@/components/dashboard/OrdersTable'
 import { useShopifyOrders } from '@/hooks/useShopifyOrders'
 import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
-import { usePeriod } from '@/contexts/PeriodContext'
+import { usePeriod, periodLabel as getPeriodLabel } from '@/contexts/PeriodContext'
 import { isSupabaseConfigured } from '@/lib/supabase'
 
 function TikTokIcon({ size = 18 }) {
@@ -143,6 +143,7 @@ export default function Dashboard() {
   }
 
   const showLoading = loading || syncing
+  const pLabel = getPeriodLabel(days)
 
   // Build "connect" nodes for ad platform KPIs when not connected
   const adConnected = { metaSpend: metaConnected, tiktokSpend: tiktokConnected }
@@ -155,7 +156,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold text-white">Dashboard</h2>
-          <p className="text-xs text-white/40 mt-0.5">Últimos {days} días · Shopify</p>
+          <p className="text-xs text-white/40 mt-0.5">{pLabel} · Shopify</p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <CurrencySelector currency={currency} setCurrency={setCurrency} />
@@ -207,7 +208,7 @@ export default function Dashboard() {
       </div>
 
       {/* Chart */}
-      <SalesChart data={chartData} days={days} symbol={symbol} convert={convert} />
+      <SalesChart data={chartData} periodLabel={pLabel} symbol={symbol} convert={convert} />
 
       {/* Orders table */}
       <OrdersTable orders={orders} loading={showLoading} hasRealData={hasRealData} />

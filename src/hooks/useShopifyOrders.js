@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { buildPeriodWindows } from '@/lib/periodUtils'
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
 // adSpendByDate: { 'YYYY-MM-DD': totalSpend } (Meta + TikTok combined)
-function buildChartData(orders, numDays, adSpendByDate = {}) {
+// endDate: the reference "last day" for the chart (today for regular periods, yesterday for 'yesterday')
+function buildChartData(orders, numDays, adSpendByDate = {}, endDate = new Date()) {
   const days = []
+  const base = new Date(endDate); base.setHours(0, 0, 0, 0)
   for (let i = numDays - 1; i >= 0; i--) {
-    const d = new Date()
+    const d = new Date(base)
     d.setDate(d.getDate() - i)
-    const key = d.toISOString().slice(0, 10)
+    const key   = d.toISOString().slice(0, 10)
     const label = `${MONTHS_ES[d.getMonth()]} ${d.getDate()}`
     days.push({ key, date: label, ventas: 0, beneficio: 0, pedidos: 0 })
   }
@@ -23,7 +26,6 @@ function buildChartData(orders, numDays, adSpendByDate = {}) {
       day.beneficio += Math.round(amount * 0.25)
     }
   })
-  // Subtract combined daily ad spend from estimated beneficio
   for (const day of days) {
     day.beneficio -= (adSpendByDate[day.key] || 0)
   }
@@ -53,14 +55,22 @@ function calcLineItemsCOGS(lineItems, costsMap, fallbackAmount) {
     const itemTotal = (parseFloat(item.price) || 0) * qty
     if (pid && costsMap[pid]) {
       const tiers = costsMap[pid]
-      if (tiers[qty] !== undefined)      total += tiers[qty]
-      else if (tiers[1] !== undefined)   total += tiers[1] * qty
-      else                               total += itemTotal * 0.30
+      if (tiers[qty] !== undefined)    total += tiers[qty]
+      else if (tiers[1] !== undefined) total += tiers[1] * qty
+      else                             total += itemTotal * 0.30
     } else {
       total += itemTotal * 0.30
     }
   }
   return total
+}
+
+// Sum ad-spend rows for a date range.
+// from / to are 'YYYY-MM-DD' strings; to is exclusive (or null = no upper bound).
+function sumSpend(rows, from, to = null) {
+  return rows
+    .filter(r => r.date >= from && (!to || r.date < to))
+    .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
 }
 
 const ZERO_KPIS = {
@@ -77,17 +87,18 @@ const ZERO_KPIS = {
 }
 
 const EMPTY_STATE = {
-  orders:         [],
-  kpis:           {},
-  chartData:      [],
-  loading:        false,
-  hasRealData:    false,
-  metaConnected:  false,
+  orders:          [],
+  kpis:            {},
+  chartData:       [],
+  loading:         false,
+  hasRealData:     false,
+  metaConnected:   false,
   tiktokConnected: false,
 }
 
-export function useShopifyOrders(days = 30) {
-  const [state, setState] = useState({ ...EMPTY_STATE, loading: isSupabaseConfigured })
+// period: 'today' | 'yesterday' | '7' | '14' | '30' | '90'
+export function useShopifyOrders(period = '30') {
+  const [state, setState]         = useState({ ...EMPTY_STATE, loading: isSupabaseConfigured })
   const [syncing, setSyncing]     = useState(false)
   const [syncError, setSyncError] = useState('')
 
@@ -95,9 +106,24 @@ export function useShopifyOrders(days = 30) {
     if (!isSupabaseConfigured) return
 
     try {
-      const windowStart  = new Date(); windowStart.setDate(windowStart.getDate() - days)
-      const compareStart = new Date(); compareStart.setDate(compareStart.getDate() - (days * 2))
-      const compareStartDate  = compareStart.toISOString().slice(0, 10)
+      const {
+        windowStart, windowEnd,
+        compareStart, compareEnd,
+        numDays, chartEndDate, isSingleDay,
+      } = buildPeriodWindows(period)
+
+      const wStartIso = windowStart.toISOString()
+      const wEndIso   = windowEnd.toISOString()
+      const cStartIso = compareStart.toISOString()
+      const cEndIso   = compareEnd.toISOString()
+
+      // Date strings for ad_spend table (stored as DATE, not TIMESTAMP)
+      const windowStartDate  = windowStart.toISOString().slice(0, 10)
+      const compareStartDate = compareStart.toISOString().slice(0, 10)
+
+      // For single-day periods: need to query up to the day AFTER windowStart for the spend row
+      // For regular periods: just query from compareStart, no upper bound on orders
+      const ordersGte = cStartIso
 
       const [
         { data: allOrders, error: ordersError },
@@ -110,7 +136,7 @@ export function useShopifyOrders(days = 30) {
         supabase
           .from('shopify_orders')
           .select('shopify_id, amount, shopify_created_at, financial_status, fulfillment_status, order_number, customer_name, customer_email, currency, line_items, source_name')
-          .gte('shopify_created_at', compareStart.toISOString())
+          .gte('shopify_created_at', ordersGte)
           .order('shopify_created_at', { ascending: false }),
         supabase
           .from('shopify_connections')
@@ -118,74 +144,65 @@ export function useShopifyOrders(days = 30) {
           .eq('is_active', true)
           .limit(1)
           .maybeSingle(),
-        // product_costs / meta_ad_spend / tiktok_ad_spend may not exist yet — errors return null data
-        supabase
-          .from('product_costs')
-          .select('shopify_product_id, quantity, cost'),
-        supabase
-          .from('meta_ad_spend')
-          .select('date, spend')
-          .gte('date', compareStartDate),
-        supabase
-          .from('meta_connections')
-          .select('user_id')
-          .eq('is_active', true)
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('tiktok_ad_spend')
-          .select('date, spend')
-          .gte('date', compareStartDate),
+        supabase.from('product_costs').select('shopify_product_id, quantity, cost'),
+        // meta_ad_spend / tiktok_ad_spend may not exist yet — errors return null data
+        supabase.from('meta_ad_spend').select('date, spend').gte('date', compareStartDate),
+        supabase.from('meta_connections').select('user_id').eq('is_active', true).limit(1).maybeSingle(),
+        supabase.from('tiktok_ad_spend').select('date, spend').gte('date', compareStartDate),
       ])
 
       if (ordersError) throw ordersError
 
-      const costsMap      = buildCostsMap(costsRows)
-      const metaConnected = !!metaConn
-      // tiktokConnected: will be true once tiktok_connections table + integration exists
+      const costsMap       = buildCostsMap(costsRows)
+      const metaConnected  = !!metaConn
       const tiktokConnected = false
 
-      // Build combined ad spend lookup by date (Meta + TikTok)
-      const windowStartDate = windowStart.toISOString().slice(0, 10)
       const safeMetaRows   = metaRows   || []
       const safeTikTokRows = tiktokRows || []
 
+      // ── Ad spend per day (for chart) ─────────────────────────────────────
       const adSpendByDate = {}
-      for (const r of safeMetaRows) {
-        adSpendByDate[r.date] = (adSpendByDate[r.date] || 0) + (parseFloat(r.spend) || 0)
-      }
-      for (const r of safeTikTokRows) {
+      for (const r of [...safeMetaRows, ...safeTikTokRows]) {
         adSpendByDate[r.date] = (adSpendByDate[r.date] || 0) + (parseFloat(r.spend) || 0)
       }
 
-      const sumPeriodSpend = (rows, from, to) =>
-        rows.filter((r) => r.date >= from && (to ? r.date < to : true))
-            .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
+      // ── Ad spend KPI values ───────────────────────────────────────────────
+      let cMetaSpend, pMetaSpend, cTikTokSpend, pTikTokSpend
 
-      const cMetaSpend   = sumPeriodSpend(safeMetaRows,   windowStartDate)
-      const pMetaSpend   = sumPeriodSpend(safeMetaRows,   compareStartDate, windowStartDate)
-      const cTikTokSpend = sumPeriodSpend(safeTikTokRows, windowStartDate)
-      const pTikTokSpend = sumPeriodSpend(safeTikTokRows, compareStartDate, windowStartDate)
+      if (isSingleDay) {
+        // 'today' / 'yesterday': compare the exact single day vs same weekday -7 days
+        const spendDate  = windowStartDate
+        const cmpDate    = compareStart.toISOString().slice(0, 10)
+        const pickDate   = (rows, d) => rows.filter(r => r.date === d).reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
+        cMetaSpend   = pickDate(safeMetaRows,   spendDate)
+        pMetaSpend   = pickDate(safeMetaRows,   cmpDate)
+        cTikTokSpend = pickDate(safeTikTokRows, spendDate)
+        pTikTokSpend = pickDate(safeTikTokRows, cmpDate)
+      } else {
+        // Regular multi-day: sum from window start (no upper bound) vs prev window
+        const cmpEndDate = compareEnd.toISOString().slice(0, 10)
+        cMetaSpend   = sumSpend(safeMetaRows,   windowStartDate)
+        pMetaSpend   = sumSpend(safeMetaRows,   compareStartDate, cmpEndDate)
+        cTikTokSpend = sumSpend(safeTikTokRows, windowStartDate)
+        pTikTokSpend = sumSpend(safeTikTokRows, compareStartDate, cmpEndDate)
+      }
 
-      if (!allOrders?.length) {
+      // ── Split orders into current / previous windows ──────────────────────
+      const current  = (allOrders || []).filter(o => o.shopify_created_at >= wStartIso && o.shopify_created_at < wEndIso)
+      const previous = (allOrders || []).filter(o => o.shopify_created_at >= cStartIso && o.shopify_created_at < cEndIso)
+
+      if (!current.length && !previous.length && !(allOrders?.length)) {
         setState(!!connRow
           ? {
-              orders: [],
-              kpis: ZERO_KPIS,
-              chartData: buildChartData([], days, adSpendByDate),
-              loading: false,
-              hasRealData: true,
-              metaConnected,
-              tiktokConnected,
+              orders: [], kpis: ZERO_KPIS,
+              chartData: buildChartData([], numDays, adSpendByDate, chartEndDate),
+              loading: false, hasRealData: true,
+              metaConnected, tiktokConnected,
             }
           : { ...EMPTY_STATE }
         )
         return
       }
-
-      const windowStartIso = windowStart.toISOString()
-      const current  = allOrders.filter((o) => o.shopify_created_at >= windowStartIso)
-      const previous = allOrders.filter((o) => o.shopify_created_at < windowStartIso)
 
       const isRefunded = (o) => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
       const sumNet     = (arr) => arr.reduce((s, o) => isRefunded(o) ? s : s + (parseFloat(o.amount) || 0), 0)
@@ -197,14 +214,13 @@ export function useShopifyOrders(days = 30) {
       const pTicket  = pOrders ? pRevenue / pOrders : 0
 
       const sumCOGS = (arr) =>
-        arr
-          .filter((o) => !isRefunded(o))
-          .reduce((s, o) => s + calcLineItemsCOGS(o.line_items, costsMap, parseFloat(o.amount) || 0), 0)
+        arr.filter(o => !isRefunded(o))
+           .reduce((s, o) => s + calcLineItemsCOGS(o.line_items, costsMap, parseFloat(o.amount) || 0), 0)
 
       const cCOGS = Math.round(sumCOGS(current) * 100) / 100
       const pCOGS = Math.round(sumCOGS(previous) * 100) / 100
 
-      // Beneficio = Ventas − COGS − Meta Ads − TikTok Ads
+      // Beneficio = Ventas − COGS − Meta − TikTok
       const cBeneficio = Math.round((cRevenue - cCOGS - cMetaSpend - cTikTokSpend) * 100) / 100
       const pBeneficio = Math.round((pRevenue - pCOGS - pMetaSpend - pTikTokSpend) * 100) / 100
 
@@ -234,8 +250,9 @@ export function useShopifyOrders(days = 30) {
         },
         chartData: buildChartData(
           [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at)),
-          days,
-          adSpendByDate
+          numDays,
+          adSpendByDate,
+          chartEndDate
         ),
         loading: false,
         hasRealData: true,
@@ -246,7 +263,7 @@ export function useShopifyOrders(days = 30) {
       console.error('[useShopifyOrders]', err)
       setState({ ...EMPTY_STATE })
     }
-  }, [days])
+  }, [period])
 
   const sync = useCallback(async () => {
     setSyncing(true)
@@ -297,9 +314,7 @@ export function useShopifyOrders(days = 30) {
           () => fetchData()
         )
         .subscribe((status) => {
-          if (status === 'CHANNEL_ERROR') {
-            console.error('[realtime] shopify_orders subscription error')
-          }
+          if (status === 'CHANNEL_ERROR') console.error('[realtime] shopify_orders subscription error')
         })
     })
 

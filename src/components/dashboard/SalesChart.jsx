@@ -34,8 +34,11 @@ function CustomTooltip({ active, payload, label, symbol, convert }) {
   )
 }
 
-export default function SalesChart({ data, days = 30, symbol = '€', convert = (v) => v }) {
+export default function SalesChart({ data, days = 30, periodLabel, symbol = '€', convert = (v) => v }) {
   const chartData = data ?? []
+
+  const subtitle = periodLabel
+    ?? (days === 'today' ? 'Hoy' : days === 'yesterday' ? 'Ayer' : `Últimos ${days} días`)
 
   // Determine Y-axis scale from converted max to pick the right unit (k / M / plain)
   const maxConverted = convert(
@@ -55,7 +58,7 @@ export default function SalesChart({ data, days = 30, symbol = '€', convert = 
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold text-white">Evolución de Ventas</h3>
-          <p className="text-xs text-white/40 mt-0.5">Últimos {days} días</p>
+          <p className="text-xs text-white/40 mt-0.5">{subtitle}</p>
         </div>
         <div className="flex gap-2">
           {[

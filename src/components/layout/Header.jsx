@@ -20,7 +20,7 @@ function PeriodSelector() {
     <div className="relative">
       <select
         value={days}
-        onChange={(e) => setDays(Number(e.target.value))}
+        onChange={(e) => setDays(e.target.value)}
         className="appearance-none bg-surface-700 border border-white/5 rounded-lg pl-3 pr-7 py-1.5 text-xs text-white/60 cursor-pointer hover:border-white/10 focus:outline-none transition-colors"
       >
         {PERIODS.map((p) => (

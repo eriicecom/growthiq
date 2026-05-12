@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { usePeriod, PERIODS } from '@/contexts/PeriodContext'
+import { buildPeriodWindows } from '@/lib/periodUtils'
 import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
 import Badge from '@/components/ui/Badge'
 
@@ -81,14 +82,24 @@ function resolveChannel(o) {
   return 'Orgánico'
 }
 
-function processOrders(allOrders, days) {
-  const now = new Date()
-  const winStart = new Date(now);  winStart.setDate(now.getDate() - days)
-  const cmpStart = new Date(now);  cmpStart.setDate(now.getDate() - days * 2)
-  const wIso = winStart.toISOString(), cIso = cmpStart.toISOString()
+function processOrders(allOrders, period) {
+  const {
+    windowStart, windowEnd,
+    compareStart, compareEnd,
+    numDays, chartEndDate,
+  } = buildPeriodWindows(period)
 
-  const curr = allOrders.filter(o => o.shopify_created_at >= wIso)
-  const prev = allOrders.filter(o => o.shopify_created_at >= cIso && o.shopify_created_at < wIso)
+  // For single-day periods ('today'/'yesterday'), previous period is 7 days prior (same weekday).
+  // For regular periods, it's shifted by numDays.
+  const prevOffset = (period === 'today' || period === 'yesterday') ? 7 : numDays
+
+  const wIso = windowStart.toISOString()
+  const wEnd = windowEnd.toISOString()
+  const cIso = compareStart.toISOString()
+  const cEnd = compareEnd.toISOString()
+
+  const curr = allOrders.filter(o => o.shopify_created_at >= wIso && o.shopify_created_at < wEnd)
+  const prev = allOrders.filter(o => o.shopify_created_at >= cIso && o.shopify_created_at < cEnd)
 
   const isRef  = o => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
   const isVoid = o => o.financial_status === 'voided'
@@ -104,10 +115,11 @@ function processOrders(allOrders, days) {
 
   // ── Chart: current period days, previous overlay aligned by day-index ──────
   const chartData = []
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now); d.setDate(now.getDate() - i)
+  const base = new Date(chartEndDate); base.setHours(0, 0, 0, 0)
+  for (let i = numDays - 1; i >= 0; i--) {
+    const d = new Date(base); d.setDate(d.getDate() - i)
     const k = d.toISOString().slice(0, 10)
-    const pd = new Date(d); pd.setDate(d.getDate() - days)
+    const pd = new Date(d); pd.setDate(pd.getDate() - prevOffset)
     const pk = pd.toISOString().slice(0, 10)
     chartData.push({ k, pk, date: `${MONTHS_ES[d.getMonth()]} ${d.getDate()}`,
       ventas: 0, pedidos: 0, ticket: 0, _n: 0,
@@ -563,8 +575,7 @@ export default function Sales() {
     if (!isSupabaseConfigured) { setLoading(false); return }
     setLoading(true)
 
-    const compareStart = new Date()
-    compareStart.setDate(compareStart.getDate() - days * 2)
+    const { compareStart } = buildPeriodWindows(days)
 
     supabase
       .from('shopify_orders')
@@ -610,7 +621,7 @@ export default function Sales() {
   }
 
   const { kpis, chartData, products, funnel, orders } = salesData
-  const kpiPeriod = PERIODS.find(p => p.value === days)?.label ?? `${days} días`
+  const kpiPeriod = PERIODS.find(p => p.value === String(days))?.label ?? `${days} días`
 
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto">
@@ -624,7 +635,7 @@ export default function Sales() {
         <div className="flex items-center gap-2 self-start sm:self-auto">
           {/* Period selector */}
           <div className="relative">
-            <select value={days} onChange={e => setDays(Number(e.target.value))}
+            <select value={days} onChange={e => setDays(e.target.value)}
               className="appearance-none bg-surface-700 border border-white/5 rounded-lg pl-3 pr-7 py-1.5 text-xs text-white/60 cursor-pointer hover:border-white/10 focus:outline-none transition-colors">
               {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
