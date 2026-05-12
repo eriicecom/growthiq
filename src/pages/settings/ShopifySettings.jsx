@@ -48,6 +48,7 @@ export default function ShopifySettings() {
   const [syncProgress, setSyncProgress] = useState(0)
   const [syncCount, setSyncCount] = useState(0)
   const [syncTotal, setSyncTotal] = useState(0)
+  const [webhooksActive, setWebhooksActive] = useState(false)
   const [showInstructions, setShowInstructions] = useState(false)
 
   const pollRef = useRef(null)
@@ -151,6 +152,18 @@ export default function ShopifySettings() {
     const { synced } = await syncRes.json()
     setSyncProgress(100)
     setSyncCount(synced)
+
+    // Step 4: Register webhooks for real-time order updates (best-effort)
+    setWebhooksActive(false)
+    try {
+      const whRes = await fetch('/.netlify/functions/shopify-register-webhooks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+      })
+      const whData = await whRes.json().catch(() => ({}))
+      setWebhooksActive(whRes.ok && whData.ok !== false)
+    } catch { /* webhook registration is non-critical */ }
+
     setStep('done')
     await loadConnection()
   }
@@ -292,11 +305,19 @@ export default function ShopifySettings() {
 
       {/* Done feedback */}
       {step === 'done' && (
-        <div className="card p-4 flex items-center gap-3 border-emerald-500/20 bg-emerald-500/5">
-          <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-          <p className="text-sm text-emerald-300">
-            {syncCount.toLocaleString('es-ES')} pedidos sincronizados. El dashboard ya muestra datos reales.
-          </p>
+        <div className="card p-4 space-y-2 border-emerald-500/20 bg-emerald-500/5">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+            <p className="text-sm text-emerald-300">
+              {syncCount.toLocaleString('es-ES')} pedidos sincronizados. El dashboard ya muestra datos reales.
+            </p>
+          </div>
+          {webhooksActive && (
+            <div className="flex items-center gap-3">
+              <CheckCircle2 size={18} className="text-brand-400 shrink-0" />
+              <p className="text-sm text-brand-300">Sincronización automática activada.</p>
+            </div>
+          )}
         </div>
       )}
 

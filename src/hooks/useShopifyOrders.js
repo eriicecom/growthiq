@@ -159,14 +159,40 @@ export function useShopifyOrders() {
 
   useEffect(() => {
     if (!isSupabaseConfigured) return
+
+    // Initial data fetch — the Supabase client's JWT handles RLS filtering
     fetchData()
 
-    const channel = supabase
-      .channel('shopify-orders-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopify_orders' }, fetchData)
-      .subscribe()
+    // Set up a user-scoped realtime subscription.
+    // We get the userId asynchronously; a cancelled flag prevents channel
+    // creation if the component unmounts before getSession resolves.
+    let channel
+    let cancelled = false
 
-    return () => supabase.removeChannel(channel)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return
+      const uid = session?.user?.id
+      if (!uid) return
+
+      channel = supabase
+        .channel(`shopify-orders-${uid}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'shopify_orders',
+            filter: `user_id=eq.${uid}`,
+          },
+          fetchData
+        )
+        .subscribe()
+    })
+
+    return () => {
+      cancelled = true
+      if (channel) supabase.removeChannel(channel)
+    }
   }, [fetchData])
 
   return { ...state, syncing, syncError, sync }

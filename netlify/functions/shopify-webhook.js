@@ -1,16 +1,36 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import ws from 'ws'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
+const TOPICS = new Set(['orders/create', 'orders/updated', 'orders/paid'])
 
-function verifyHmac(body, hmacHeader) {
-  const secret = process.env.SHOPIFY_WEBHOOK_SECRET
-  if (!secret || !hmacHeader) return !secret // skip if no secret configured
-  const hash = crypto.createHmac('sha256', secret).update(body, 'utf8').digest('base64')
-  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(hmacHeader))
+function verifyHmac(rawBody, hmacHeader, secret) {
+  const hash = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
+  const a = Buffer.from(hash)
+  const b = Buffer.from(hmacHeader)
+  // timingSafeEqual requires identical lengths — if they differ the signature is wrong
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+function mapOrder(order, userId) {
+  const firstName = order.customer?.first_name || ''
+  const lastName  = order.customer?.last_name  || ''
+  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente desconocido'
+  return {
+    shopify_id:         String(order.id),
+    order_number:       `#${order.order_number}`,
+    customer_name:      customerName,
+    customer_email:     order.customer?.email || '',
+    amount:             parseFloat(order.total_price) || 0,
+    currency:           order.currency || 'EUR',
+    financial_status:   order.financial_status  || 'pending',
+    fulfillment_status: order.fulfillment_status || 'unfulfilled',
+    line_items:         (order.line_items || []).map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+    source_name:        order.source_name || 'web',
+    shopify_created_at: order.created_at,
+    updated_at:         new Date().toISOString(),
+    user_id:            userId,
+  }
 }
 
 export const handler = async (event) => {
@@ -18,11 +38,31 @@ export const handler = async (event) => {
     return { statusCode: 405, body: 'Method Not Allowed' }
   }
 
-  const hmac = event.headers['x-shopify-hmac-sha256']
-  if (!verifyHmac(event.body, hmac)) {
-    return { statusCode: 401, body: 'Unauthorized' }
+  // ── HMAC verification ────────────────────────────────────────────────────
+  const secret    = process.env.SHOPIFY_WEBHOOK_SECRET
+  const hmacHeader = event.headers['x-shopify-hmac-sha256']
+
+  if (secret) {
+    if (!hmacHeader) {
+      console.warn('[webhook] missing x-shopify-hmac-sha256 header')
+      return { statusCode: 401, body: 'Unauthorized' }
+    }
+    if (!verifyHmac(event.body, hmacHeader, secret)) {
+      console.warn('[webhook] HMAC verification failed')
+      return { statusCode: 401, body: 'Unauthorized' }
+    }
   }
 
+  // ── Topic filter ─────────────────────────────────────────────────────────
+  const topic     = event.headers['x-shopify-topic'] || ''
+  const shopDomain = (event.headers['x-shopify-shop-domain'] || '').toLowerCase().replace(/\/$/, '')
+
+  if (!TOPICS.has(topic)) {
+    // Acknowledge unsupported topics immediately so Shopify stops retrying
+    return { statusCode: 200, body: JSON.stringify({ ignored: true }) }
+  }
+
+  // ── Parse order payload ──────────────────────────────────────────────────
   let order
   try {
     order = JSON.parse(event.body)
@@ -30,37 +70,47 @@ export const handler = async (event) => {
     return { statusCode: 400, body: 'Invalid JSON' }
   }
 
-  const firstName = order.customer?.first_name || ''
-  const lastName = order.customer?.last_name || ''
-  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente desconocido'
+  // ── Supabase setup ───────────────────────────────────────────────────────
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  const orderData = {
-    shopify_id: String(order.id),
-    order_number: `#${order.order_number}`,
-    customer_name: customerName,
-    customer_email: order.customer?.email || '',
-    amount: parseFloat(order.total_price) || 0,
-    currency: order.currency || 'EUR',
-    financial_status: order.financial_status || 'pending',
-    fulfillment_status: order.fulfillment_status || 'unfulfilled',
-    line_items: (order.line_items || []).map((item) => ({
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-    })),
-    source_name: order.source_name || 'web',
-    shopify_created_at: order.created_at,
-    updated_at: new Date().toISOString(),
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('[webhook] Supabase env vars missing')
+    return { statusCode: 500, body: 'Server configuration error' }
   }
 
-  const { error } = await supabase
-    .from('shopify_orders')
-    .upsert(orderData, { onConflict: 'shopify_id' })
+  const supabase = createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } })
 
-  if (error) {
-    console.error('Webhook: error saving order', error)
+  // ── Look up user_id by shop domain ───────────────────────────────────────
+  // Must use service-role key (bypasses RLS) since there is no user JWT here
+  if (!shopDomain) {
+    console.error('[webhook] x-shopify-shop-domain header missing')
+    return { statusCode: 400, body: 'Missing shop domain header' }
+  }
+
+  const { data: conn, error: connErr } = await supabase
+    .from('shopify_connections')
+    .select('user_id')
+    .eq('shop_domain', shopDomain)
+    .limit(1)
+    .single()
+
+  if (connErr || !conn?.user_id) {
+    console.error('[webhook] shop not found:', shopDomain, connErr?.message)
+    // Return 200 so Shopify stops retrying — the shop simply isn't registered
+    return { statusCode: 200, body: JSON.stringify({ ignored: true, reason: 'shop not found' }) }
+  }
+
+  // ── Upsert order ─────────────────────────────────────────────────────────
+  const { error: upsertErr } = await supabase
+    .from('shopify_orders')
+    .upsert(mapOrder(order, conn.user_id), { onConflict: 'user_id,shopify_id' })
+
+  if (upsertErr) {
+    console.error('[webhook] upsert error:', upsertErr.message)
     return { statusCode: 500, body: 'Error saving order' }
   }
 
+  console.log(`[webhook] ${topic} | shop: ${shopDomain} | order: ${order.id} | user: ${conn.user_id}`)
   return { statusCode: 200, body: JSON.stringify({ received: true }) }
 }
