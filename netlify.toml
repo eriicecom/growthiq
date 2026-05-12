@@ -13,3 +13,6 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+
+[functions."meta-sync-scheduled"]
+  schedule = "0 */2 * * *"

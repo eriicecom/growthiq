@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Loader2, Settings, AlertCircle, TrendingUp } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
@@ -32,39 +32,75 @@ function SummaryCard({ label, value, symbol }) {
   )
 }
 
+// ── phase: 'init' | 'syncing' | 'ready'
+// 'init'   → checking connection (skeleton)
+// 'syncing' → auto-syncing on load ("Actualizando datos...")
+// 'ready'  → data loaded (render page or empty states)
+
 export default function MetaAds() {
   const { symbol, convert } = useCurrency()
-  const [connection, setConnection] = useState(undefined) // undefined=loading
+  const [phase, setPhase]           = useState('init')
+  const [connection, setConnection] = useState(null)
   const [rows, setRows]             = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [syncing, setSyncing]       = useState(false)
+  const [manualSyncing, setManualSyncing] = useState(false)
   const [syncError, setSyncError]   = useState('')
 
-  const loadData = useCallback(async () => {
-    if (!isSupabaseConfigured) { setLoading(false); return }
+  useEffect(() => {
+    if (!isSupabaseConfigured) { setPhase('ready'); return }
 
-    const [{ data: conn }, { data: spend }] = await Promise.all([
-      supabase
+    async function init() {
+      // 1. Check for active Meta connection
+      const { data: conn } = await supabase
         .from('meta_connections')
         .select('ad_account_id, account_name, last_synced_at')
         .eq('is_active', true)
-        .maybeSingle(),
-      supabase
+        .maybeSingle()
+
+      setConnection(conn || null)
+
+      if (!conn) { setPhase('ready'); return }
+
+      // 2. Auto-sync before showing data
+      setPhase('syncing')
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch('/.netlify/functions/meta-sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+        })
+        // Refresh last_synced_at on the connection object
+        if (res.ok) {
+          const { data: fresh } = await supabase
+            .from('meta_connections')
+            .select('ad_account_id, account_name, last_synced_at')
+            .eq('is_active', true)
+            .maybeSingle()
+          setConnection(fresh || conn)
+        }
+      } catch (err) {
+        // Non-blocking — show cached data if sync fails
+        console.warn('[MetaAds] auto-sync failed:', err.message)
+      }
+
+      // 3. Load spend rows (fresh or cached)
+      const { data: spend } = await supabase
         .from('meta_ad_spend')
         .select('date, spend, impressions, clicks')
         .order('date', { ascending: false })
-        .limit(30),
-    ])
+        .limit(30)
+      setRows(spend || [])
 
-    setConnection(conn || null)
-    setRows(spend || [])
-    setLoading(false)
-  }, [])
+      setPhase('ready')
+    }
 
-  useEffect(() => { loadData() }, [loadData])
+    init()
+  }, []) // run once on mount
 
   async function handleSync() {
-    setSyncing(true)
+    setManualSyncing(true)
     setSyncError('')
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -77,25 +113,44 @@ export default function MetaAds() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
-      await loadData()
+
+      // Refresh connection + rows
+      const [{ data: conn }, { data: spend }] = await Promise.all([
+        supabase
+          .from('meta_connections')
+          .select('ad_account_id, account_name, last_synced_at')
+          .eq('is_active', true)
+          .maybeSingle(),
+        supabase
+          .from('meta_ad_spend')
+          .select('date, spend, impressions, clicks')
+          .order('date', { ascending: false })
+          .limit(30),
+      ])
+      setConnection(conn || null)
+      setRows(spend || [])
     } catch (err) {
       setSyncError(err.message)
     } finally {
-      setSyncing(false)
+      setManualSyncing(false)
     }
   }
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
-  const today      = new Date().toISOString().slice(0, 10)
-  const d7         = new Date(); d7.setDate(d7.getDate() - 6); const d7str = d7.toISOString().slice(0, 10)
+  // ── Early exits ─────────────────────────────────────────────────────────────
 
-  const todayRow   = rows.find((r) => r.date === today)
-  const todaySpend = convert(parseFloat(todayRow?.spend) || 0)
-  const spend7d    = convert(rows.filter((r) => r.date >= d7str).reduce((s, r) => s + (parseFloat(r.spend) || 0), 0))
-  const spend30d   = convert(rows.reduce((s, r) => s + (parseFloat(r.spend) || 0), 0))
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="max-w-screen-xl mx-auto flex items-center justify-center min-h-[60vh]">
+        <div className="card p-10 text-center space-y-3 max-w-sm w-full">
+          <AlertCircle size={28} className="mx-auto text-amber-400" />
+          <p className="text-sm font-semibold text-white">Supabase no configurado</p>
+        </div>
+      </div>
+    )
+  }
 
-  // ── Loading ───────────────────────────────────────────────────────────────
-  if (loading) {
+  // Checking connection
+  if (phase === 'init') {
     return (
       <div className="max-w-screen-xl mx-auto space-y-6">
         <div className="h-5 w-40 bg-white/5 rounded animate-pulse" />
@@ -111,19 +166,30 @@ export default function MetaAds() {
     )
   }
 
-  // ── Not configured ────────────────────────────────────────────────────────
-  if (!isSupabaseConfigured) {
+  // Auto-syncing on load
+  if (phase === 'syncing') {
     return (
       <div className="max-w-screen-xl mx-auto flex items-center justify-center min-h-[60vh]">
-        <div className="card p-10 text-center space-y-3 max-w-sm w-full">
-          <AlertCircle size={28} className="mx-auto text-amber-400" />
-          <p className="text-sm font-semibold text-white">Supabase no configurado</p>
+        <div className="card p-12 text-center space-y-5 max-w-sm w-full">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+            style={{ background: `${META_BLUE}20` }}
+          >
+            <MetaIcon size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-white">Actualizando datos...</p>
+            <p className="text-xs text-white/40 mt-1.5">
+              Sincronizando los últimos 30 días de Meta Ads
+            </p>
+          </div>
+          <Loader2 size={20} className="animate-spin text-brand-400 mx-auto" />
         </div>
       </div>
     )
   }
 
-  // ── Not connected ─────────────────────────────────────────────────────────
+  // Not connected
   if (!connection) {
     return (
       <div className="max-w-screen-xl mx-auto flex items-center justify-center min-h-[60vh]">
@@ -151,7 +217,16 @@ export default function MetaAds() {
     )
   }
 
-  // ── Connected ─────────────────────────────────────────────────────────────
+  // ── Connected + ready ────────────────────────────────────────────────────────
+
+  const today   = new Date().toISOString().slice(0, 10)
+  const d7      = new Date(); d7.setDate(d7.getDate() - 6)
+  const d7str   = d7.toISOString().slice(0, 10)
+
+  const todaySpend = convert(parseFloat(rows.find((r) => r.date === today)?.spend) || 0)
+  const spend7d    = convert(rows.filter((r) => r.date >= d7str).reduce((s, r) => s + (parseFloat(r.spend) || 0), 0))
+  const spend30d   = convert(rows.reduce((s, r) => s + (parseFloat(r.spend) || 0), 0))
+
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto">
 
@@ -171,10 +246,10 @@ export default function MetaAds() {
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
             onClick={handleSync}
-            disabled={syncing}
+            disabled={manualSyncing}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {syncing
+            {manualSyncing
               ? <><Loader2 size={13} className="animate-spin" /> Sincronizando...</>
               : <><RefreshCw size={13} /> Sincronizar</>}
           </button>
@@ -190,7 +265,7 @@ export default function MetaAds() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <SummaryCard label="Hoy"           value={todaySpend} symbol={symbol} />
+        <SummaryCard label="Hoy"            value={todaySpend} symbol={symbol} />
         <SummaryCard label="Últimos 7 días"  value={spend7d}   symbol={symbol} />
         <SummaryCard label="Últimos 30 días" value={spend30d}  symbol={symbol} />
       </div>
@@ -205,7 +280,7 @@ export default function MetaAds() {
         {rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 space-y-3">
             <MetaIcon size={28} />
-            <p className="text-sm text-white/40">No hay datos de gasto. Pulsa Sincronizar para importarlos.</p>
+            <p className="text-sm text-white/40">No hay datos de gasto en los últimos 30 días.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -219,15 +294,15 @@ export default function MetaAds() {
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const spend = parseFloat(row.spend) || 0
-                  const impr  = parseInt(row.impressions, 10) || 0
-                  const clks  = parseInt(row.clicks, 10) || 0
-                  const cpm   = impr > 0 ? convert(spend / impr * 1000) : 0
-                  const cpc   = clks > 0 ? convert(spend / clks) : 0
+                  const spend  = parseFloat(row.spend) || 0
+                  const impr   = parseInt(row.impressions, 10) || 0
+                  const clks   = parseInt(row.clicks, 10) || 0
+                  const cpm    = impr > 0 ? convert(spend / impr * 1000) : 0
+                  const cpc    = clks > 0 ? convert(spend / clks) : 0
                   const cSpend = convert(spend)
 
-                  const [year, month, day] = row.date.split('-')
-                  const dateLabel = new Date(Number(year), Number(month) - 1, Number(day))
+                  const [y, m, d] = row.date.split('-')
+                  const dateLabel = new Date(Number(y), Number(m) - 1, Number(d))
                     .toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
 
                   return (
