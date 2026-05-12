@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AuthProvider, useSession } from '@/contexts/AuthContext'
+import { PeriodProvider } from '@/contexts/PeriodContext'
 import Layout from '@/components/layout/Layout'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
@@ -21,7 +22,6 @@ function FullPageLoader() {
   )
 }
 
-// Requires active session — redirects to /login if unauthenticated
 function ProtectedRoute() {
   const session = useSession()
   if (session === undefined) return <FullPageLoader />
@@ -29,7 +29,6 @@ function ProtectedRoute() {
   return <Outlet />
 }
 
-// Only for unauthenticated users — redirects to /dashboard if already logged in
 function AuthRoute() {
   const session = useSession()
   if (session === undefined) return <FullPageLoader />
@@ -41,31 +40,30 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          {/* Auth routes — inaccessible when already logged in */}
-          <Route element={<AuthRoute />}>
-            <Route path="/login"  element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-          </Route>
-
-          {/* Protected app routes */}
-          <Route element={<ProtectedRoute />}>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard"  element={<Dashboard />} />
-              <Route path="sales"      element={<Sales />} />
-              <Route path="products"   element={<Products />} />
-              <Route path="meta-ads"   element={<MetaAds />} />
-              <Route path="tiktok-ads" element={<TikTokAds />} />
-              <Route path="customers"  element={<Customers />} />
-              <Route path="orders"     element={<Orders />} />
-              <Route path="settings"   element={<Settings />} />
+        <PeriodProvider>
+          <Routes>
+            <Route element={<AuthRoute />}>
+              <Route path="/login"  element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
             </Route>
-          </Route>
 
-          {/* Catch-all — ProtectedRoute handles the auth redirect */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+            <Route element={<ProtectedRoute />}>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard"  element={<Dashboard />} />
+                <Route path="sales"      element={<Sales />} />
+                <Route path="products"   element={<Products />} />
+                <Route path="meta-ads"   element={<MetaAds />} />
+                <Route path="tiktok-ads" element={<TikTokAds />} />
+                <Route path="customers"  element={<Customers />} />
+                <Route path="orders"     element={<Orders />} />
+                <Route path="settings"   element={<Settings />} />
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </PeriodProvider>
       </AuthProvider>
     </BrowserRouter>
   )

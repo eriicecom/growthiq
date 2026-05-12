@@ -9,6 +9,7 @@ import SalesChart from '@/components/dashboard/SalesChart'
 import OrdersTable from '@/components/dashboard/OrdersTable'
 import { useShopifyOrders } from '@/hooks/useShopifyOrders'
 import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
+import { usePeriod } from '@/contexts/PeriodContext'
 import { isSupabaseConfigured } from '@/lib/supabase'
 
 // isMoney   → apply currency conversion + show symbol
@@ -70,7 +71,8 @@ function ErrorBanner({ message }) {
 }
 
 export default function Dashboard() {
-  const { orders, kpis, chartData, loading, hasRealData, sync, syncing, syncError } = useShopifyOrders()
+  const { days } = usePeriod()
+  const { orders, kpis, chartData, loading, hasRealData, sync, syncing, syncError } = useShopifyOrders(days)
   const { currency, setCurrency, symbol, convert } = useCurrency()
 
   // ── Supabase not configured ──────────────────────────────────────────────
@@ -128,7 +130,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">Dashboard</h2>
-          <p className="text-xs text-white/40 mt-0.5">Últimos 30 días · Shopify</p>
+          <p className="text-xs text-white/40 mt-0.5">Últimos {days} días · Shopify</p>
         </div>
         <div className="flex items-center gap-2">
           <CurrencySelector currency={currency} setCurrency={setCurrency} />
@@ -164,7 +166,7 @@ export default function Dashboard() {
       </div>
 
       {/* Chart */}
-      <SalesChart data={chartData} />
+      <SalesChart data={chartData} days={days} />
 
       {/* Orders table */}
       <OrdersTable orders={orders} loading={showLoading} hasRealData={hasRealData} />

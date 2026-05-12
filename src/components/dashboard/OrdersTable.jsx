@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import Badge from '@/components/ui/Badge'
 import { ArrowUpRight, Loader2 } from 'lucide-react'
 
@@ -69,9 +70,9 @@ export default function OrdersTable({ orders = [], loading = false, hasRealData 
             {loading ? 'Cargando...' : `${orders.length} pedidos recientes${hasRealData ? ' · Shopify' : ''}`}
           </p>
         </div>
-        <button className="flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 transition-colors font-medium">
+        <Link to="/orders" className="flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 transition-colors font-medium">
           Ver todos <ArrowUpRight size={13} />
-        </button>
+        </Link>
       </div>
 
       {loading ? (

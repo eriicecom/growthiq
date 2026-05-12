@@ -27,7 +27,7 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
-export default function SalesChart({ data }) {
+export default function SalesChart({ data, days = 30 }) {
   const chartData = data ?? []
 
   return (
@@ -35,7 +35,7 @@ export default function SalesChart({ data }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-sm font-semibold text-white">Evolución de Ventas</h3>
-          <p className="text-xs text-white/40 mt-0.5">Últimos 30 días</p>
+          <p className="text-xs text-white/40 mt-0.5">Últimos {days} días</p>
         </div>
         <div className="flex gap-2">
           {[

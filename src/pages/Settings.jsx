@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ChevronLeft, ShoppingBag } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ShoppingBag } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import ShopifySettings from './settings/ShopifySettings'
 
 // Each integration has an id used to navigate to its detail panel
@@ -66,8 +68,14 @@ function Breadcrumb({ crumbs, onNavigate }) {
 
 export default function Settings() {
   const [view, setView] = useState('home') // 'home' | 'integrations' | 'shopify'
+  const routerNavigate = useNavigate()
 
   function navigate(v) { setView(v) }
+
+  async function handleSignOut() {
+    await supabase?.auth.signOut()
+    routerNavigate('/login', { replace: true })
+  }
 
   if (view === 'shopify') {
     return (
@@ -176,7 +184,10 @@ export default function Settings() {
       ))}
 
       <div className="pt-4 border-t border-white/5">
-        <button className="text-sm text-red-400/70 hover:text-red-400 transition-colors font-medium">
+        <button
+          onClick={handleSignOut}
+          className="text-sm text-red-400/70 hover:text-red-400 transition-colors font-medium"
+        >
           Cerrar sesión
         </button>
       </div>
