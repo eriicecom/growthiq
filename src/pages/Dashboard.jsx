@@ -1,17 +1,50 @@
-import { Euro, TrendingUp, ShoppingBag, RefreshCw, Loader2, Settings, AlertCircle } from 'lucide-react'
+import {
+  Euro, TrendingUp, ShoppingBag, Package, RotateCcw,
+  CreditCard, Percent, RefreshCw, Loader2, Settings,
+  AlertCircle, ChevronDown,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 import KPICard from '@/components/dashboard/KPICard'
 import SalesChart from '@/components/dashboard/SalesChart'
 import OrdersTable from '@/components/dashboard/OrdersTable'
 import { useShopifyOrders } from '@/hooks/useShopifyOrders'
+import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
 import { isSupabaseConfigured } from '@/lib/supabase'
 
+// isMoney   → apply currency conversion + show symbol
+// isPercent → display as X.X% (no conversion)
+// inverseColors → red when rising, green when falling (bad if high)
 const KPI_CARDS = [
-  { title: 'Ventas Totales',     key: 'ventas',    icon: Euro,        color: 'brand'   },
-  { title: 'Ticket Medio',       key: 'ticket',    icon: TrendingUp,  color: 'emerald' },
-  { title: 'Pedidos',            key: 'pedidos',   icon: ShoppingBag, color: 'violet'  },
-  { title: 'Beneficio Estimado', key: 'beneficio', icon: TrendingUp,  color: 'amber'   },
+  { title: 'Ventas Totales',          key: 'ventas',       icon: Euro,       color: 'brand',   isMoney: true  },
+  { title: 'Ticket Medio',            key: 'ticket',       icon: TrendingUp, color: 'emerald', isMoney: true  },
+  { title: 'Pedidos',                 key: 'pedidos',      icon: ShoppingBag,color: 'violet'   },
+  { title: 'Beneficio Neto',          key: 'beneficio',    icon: TrendingUp, color: 'amber',   isMoney: true  },
+  {
+    title: 'Costes de Producto',
+    key: 'cogs', icon: Package, color: 'rose', isMoney: true,
+    note: 'Estimado · Configura tus costes reales en Ajustes',
+  },
+  { title: '% Devoluciones',          key: 'devoluciones', icon: RotateCcw,  color: 'orange',  isPercent: true, inverseColors: true },
+  { title: 'Reembolsos',              key: 'reembolsos',   icon: CreditCard, color: 'red',     isMoney: true,   inverseColors: true },
+  { title: 'Margen Neto',             key: 'margen',       icon: Percent,    color: 'teal',    isPercent: true  },
 ]
+
+function CurrencySelector({ currency, setCurrency }) {
+  return (
+    <div className="relative">
+      <select
+        value={currency}
+        onChange={(e) => setCurrency(e.target.value)}
+        className="appearance-none bg-surface-700 border border-white/5 rounded-lg pl-3 pr-7 py-1.5 text-xs text-white/60 cursor-pointer hover:border-white/10 focus:outline-none transition-colors"
+      >
+        {CURRENCIES.map((c) => (
+          <option key={c.code} value={c.code}>{c.label}</option>
+        ))}
+      </select>
+      <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+    </div>
+  )
+}
 
 function SyncButton({ onClick, syncing, small = false }) {
   const base = small
@@ -38,6 +71,7 @@ function ErrorBanner({ message }) {
 
 export default function Dashboard() {
   const { orders, kpis, chartData, loading, hasRealData, sync, syncing, syncError } = useShopifyOrders()
+  const { currency, setCurrency, symbol, convert } = useCurrency()
 
   // ── Supabase not configured ──────────────────────────────────────────────
   if (!isSupabaseConfigured) {
@@ -56,7 +90,7 @@ export default function Dashboard() {
     )
   }
 
-  // ── Empty / onboarding state (no active Shopify connection) ──────────────
+  // ── Empty / onboarding state ─────────────────────────────────────────────
   if (!loading && !hasRealData) {
     return (
       <div className="max-w-screen-xl mx-auto flex items-center justify-center min-h-[60vh]">
@@ -64,16 +98,13 @@ export default function Dashboard() {
           <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto">
             <ShoppingBag size={28} className="text-white/30" />
           </div>
-
           <div>
             <p className="text-base font-semibold text-white">Sin datos de pedidos</p>
             <p className="text-sm text-white/40 mt-2 leading-relaxed">
               Conecta tu tienda Shopify en Configuración o pulsa Sincronizar para importar los pedidos.
             </p>
           </div>
-
           <ErrorBanner message={syncError} />
-
           <div className="flex flex-col sm:flex-row gap-2 justify-center">
             <SyncButton onClick={sync} syncing={syncing} />
             <Link
@@ -88,40 +119,42 @@ export default function Dashboard() {
     )
   }
 
-  // ── Dashboard with real data (or initial load skeleton) ──────────────────
-  // syncing counts as loading for KPI skeletons so the user sees activity
   const showLoading = loading || syncing
 
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">Dashboard</h2>
           <p className="text-xs text-white/40 mt-0.5">Últimos 30 días · Shopify</p>
         </div>
-        <SyncButton onClick={sync} syncing={syncing} small />
+        <div className="flex items-center gap-2">
+          <CurrencySelector currency={currency} setCurrency={setCurrency} />
+          <SyncButton onClick={sync} syncing={syncing} small />
+        </div>
       </div>
 
-      {/* Sync error banner (full-width, below header) */}
-      {syncError && (
-        <ErrorBanner message={syncError} />
-      )}
+      {syncError && <ErrorBanner message={syncError} />}
 
-      {/* KPIs */}
+      {/* 8 KPI cards — 4 cols desktop, 2 tablet, 1 mobile */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {KPI_CARDS.map(({ title, key, icon, color }) => {
+        {KPI_CARDS.map(({ title, key, icon, color, isMoney, isPercent, inverseColors, note }) => {
           const metric = kpis[key]
           if (!metric) return null
+          const displayValue = isMoney ? convert(metric.value) : metric.value
+          const prefix = isMoney ? symbol : ''
           return (
             <KPICard
               key={key}
               title={title}
-              value={metric.value}
+              value={displayValue}
               change={metric.change}
-              prefix={metric.prefix}
-              suffix={metric.suffix ?? ''}
+              prefix={prefix}
+              isPercent={isPercent}
+              inverseColors={inverseColors}
+              note={note}
               icon={icon}
               color={color}
               loading={showLoading}

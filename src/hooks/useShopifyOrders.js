@@ -17,8 +17,8 @@ function buildChartData(orders) {
     const day = days.find((d) => d.key === key)
     if (day) {
       const amount = parseFloat(order.amount) || 0
-      day.ventas += amount
-      day.pedidos += 1
+      day.ventas   += amount
+      day.pedidos  += 1
       day.beneficio += Math.round(amount * 0.25)
     }
   })
@@ -30,11 +30,16 @@ function calcChange(current, previous) {
   return Math.round(((current - previous) / previous) * 100 * 10) / 10
 }
 
+// Zero-value KPIs for connected stores with no recent orders
 const ZERO_KPIS = {
-  ventas:    { value: 0, change: 0, prefix: '€' },
-  pedidos:   { value: 0, change: 0, prefix: '' },
-  ticket:    { value: 0, change: 0, prefix: '€' },
-  beneficio: { value: 0, change: 0, prefix: '€' },
+  ventas:       { value: 0, change: 0 },
+  pedidos:      { value: 0, change: 0 },
+  ticket:       { value: 0, change: 0 },
+  beneficio:    { value: 0, change: 0 },
+  cogs:         { value: 0, change: 0 },
+  devoluciones: { value: 0, change: 0 },
+  reembolsos:   { value: 0, change: 0 },
+  margen:       { value: 0, change: 0 },
 }
 
 const EMPTY_STATE = {
@@ -54,12 +59,9 @@ export function useShopifyOrders() {
     if (!isSupabaseConfigured) return
 
     try {
-      const sixtyDaysAgo = new Date()
-      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
-      const thirtyDaysAgo = new Date()
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+      const sixtyDaysAgo  = new Date(); sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
+      const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-      // Run both queries in parallel
       const [{ data: orders60d, error }, { data: connRow }] = await Promise.all([
         supabase
           .from('shopify_orders')
@@ -76,49 +78,60 @@ export function useShopifyOrders() {
 
       if (error) throw error
 
-      const isConnected = !!connRow
-
-      // No orders in the 60-day window
       if (!orders60d?.length) {
-        if (isConnected) {
-          // Shopify is connected but the store has no recent orders — show
-          // dashboard with zero KPIs instead of the empty/onboarding state.
-          setState({
-            orders: [],
-            kpis: ZERO_KPIS,
-            chartData: buildChartData([]),
-            loading: false,
-            hasRealData: true,
-          })
-        } else {
-          setState({ ...EMPTY_STATE })
-        }
+        setState(!!connRow
+          ? { orders: [], kpis: ZERO_KPIS, chartData: buildChartData([]), loading: false, hasRealData: true }
+          : { ...EMPTY_STATE }
+        )
         return
       }
 
-      const t30Iso = thirtyDaysAgo.toISOString()
-      const current = orders60d.filter((o) => o.shopify_created_at >= t30Iso)
+      const t30Iso   = thirtyDaysAgo.toISOString()
+      const current  = orders60d.filter((o) => o.shopify_created_at >= t30Iso)
       const previous = orders60d.filter((o) => o.shopify_created_at < t30Iso)
 
-      const sumRevenue = (arr) =>
-        arr.reduce((s, o) => (o.financial_status !== 'refunded' ? s + (parseFloat(o.amount) || 0) : s), 0)
+      const isRefunded   = (o) => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
+      const sumNet       = (arr) => arr.reduce((s, o) => isRefunded(o) ? s : s + (parseFloat(o.amount) || 0), 0)
+      const sumRefunds   = (arr) => arr.filter(isRefunded).reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
 
-      const currentRevenue  = sumRevenue(current)
-      const previousRevenue = sumRevenue(previous)
-      const currentOrders   = current.length
-      const previousOrders  = previous.length
-      const currentTicket   = currentOrders ? Math.round((currentRevenue / currentOrders) * 100) / 100 : 0
-      const previousTicket  = previousOrders ? previousRevenue / previousOrders : 0
+      // ── Core metrics ───────────────────────────────────────────────────────
+      const cRevenue   = sumNet(current);       const pRevenue  = sumNet(previous)
+      const cOrders    = current.length;        const pOrders   = previous.length
+      const cTicket    = cOrders ? Math.round((cRevenue / cOrders) * 100) / 100 : 0
+      const pTicket    = pOrders ? pRevenue / pOrders : 0
+
+      // ── New KPIs ───────────────────────────────────────────────────────────
+      const cCOGS      = Math.round(cRevenue * 0.30 * 100) / 100
+      const pCOGS      = Math.round(pRevenue * 0.30 * 100) / 100
+
+      const cBeneficio = Math.round(cRevenue * 0.25 * 100) / 100
+      const pBeneficio = Math.round(pRevenue * 0.25 * 100) / 100
+
+      const cRefundN   = current.filter(isRefunded).length
+      const pRefundN   = previous.filter(isRefunded).length
+      const cDevPct    = cOrders ? Math.round((cRefundN  / cOrders)  * 1000) / 10 : 0
+      const pDevPct    = pOrders ? Math.round((pRefundN  / pOrders)  * 1000) / 10 : 0
+
+      const cReemb     = sumRefunds(current);  const pReemb = sumRefunds(previous)
+
+      const cMargen    = cRevenue ? Math.round((cBeneficio / cRevenue) * 1000) / 10 : 0
+      const pMargen    = pRevenue ? Math.round((pBeneficio / pRevenue) * 1000) / 10 : 0
 
       setState({
-        orders: current.slice(0, 10),
+        orders:   current.slice(0, 10),
         kpis: {
-          ventas:    { value: currentRevenue,                    change: calcChange(currentRevenue, previousRevenue), prefix: '€' },
-          pedidos:   { value: currentOrders,                     change: calcChange(currentOrders, previousOrders),   prefix: '' },
-          ticket:    { value: currentTicket,                     change: calcChange(currentTicket, previousTicket),   prefix: '€' },
-          beneficio: { value: Math.round(currentRevenue * 0.25), change: calcChange(currentRevenue, previousRevenue), prefix: '€' },
+          ventas:       { value: cRevenue,    change: calcChange(cRevenue,   pRevenue)  },
+          pedidos:      { value: cOrders,     change: calcChange(cOrders,    pOrders)   },
+          ticket:       { value: cTicket,     change: calcChange(cTicket,    pTicket)   },
+          beneficio:    { value: cBeneficio,  change: calcChange(cBeneficio, pBeneficio) },
+          cogs:         { value: cCOGS,       change: calcChange(cCOGS,      pCOGS)     },
+          devoluciones: { value: cDevPct,     change: calcChange(cDevPct,    pDevPct)   },
+          reembolsos:   { value: cReemb,      change: calcChange(cReemb,     pReemb)    },
+          margen:       { value: cMargen,     change: calcChange(cMargen,    pMargen)   },
         },
-        chartData: buildChartData([...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at))),
+        chartData: buildChartData(
+          [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at))
+        ),
         loading: false,
         hasRealData: true,
       })
@@ -142,13 +155,9 @@ export function useShopifyOrders() {
       })
 
       let resData = {}
-      try { resData = await res.json() } catch { /* non-JSON response (e.g. timeout) */ }
+      try { resData = await res.json() } catch { /* non-JSON (e.g. timeout) */ }
 
-      if (!res.ok) {
-        throw new Error(resData.error || `Error del servidor (${res.status})`)
-      }
-
-      // Refresh data from Supabase after successful sync
+      if (!res.ok) throw new Error(resData.error || `Error del servidor (${res.status})`)
       await fetchData()
     } catch (err) {
       setSyncError(err.message)
@@ -160,12 +169,8 @@ export function useShopifyOrders() {
   useEffect(() => {
     if (!isSupabaseConfigured) return
 
-    // Initial data fetch — the Supabase client's JWT handles RLS filtering
     fetchData()
 
-    // Set up a user-scoped realtime subscription.
-    // We get the userId asynchronously; a cancelled flag prevents channel
-    // creation if the component unmounts before getSession resolves.
     let channel
     let cancelled = false
 
@@ -178,12 +183,7 @@ export function useShopifyOrders() {
         .channel(`shopify-orders-${uid}`)
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'shopify_orders',
-            filter: `user_id=eq.${uid}`,
-          },
+          { event: '*', schema: 'public', table: 'shopify_orders', filter: `user_id=eq.${uid}` },
           fetchData
         )
         .subscribe()
