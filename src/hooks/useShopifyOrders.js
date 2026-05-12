@@ -227,6 +227,12 @@ export function useShopifyOrders(days = 30) {
     let channel
     let cancelled = false
 
+    // Refresh when the user returns to this tab
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') fetchData()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (cancelled) return
       const uid = session?.user?.id
@@ -237,13 +243,18 @@ export function useShopifyOrders(days = 30) {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'shopify_orders', filter: `user_id=eq.${uid}` },
-          fetchData
+          () => fetchData()
         )
-        .subscribe()
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR') {
+            console.error('[realtime] shopify_orders subscription error')
+          }
+        })
     })
 
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibility)
       if (channel) supabase.removeChannel(channel)
     }
   }, [fetchData])

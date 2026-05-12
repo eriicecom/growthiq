@@ -166,7 +166,7 @@ export default function Dashboard() {
       </div>
 
       {/* Chart */}
-      <SalesChart data={chartData} days={days} />
+      <SalesChart data={chartData} days={days} symbol={symbol} convert={convert} />
 
       {/* Orders table */}
       <OrdersTable orders={orders} loading={showLoading} hasRealData={hasRealData} />

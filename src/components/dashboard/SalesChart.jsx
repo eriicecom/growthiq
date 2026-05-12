@@ -7,7 +7,14 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts'
-const CustomTooltip = ({ active, payload, label }) => {
+
+function formatY(value, symbol) {
+  if (value >= 1_000_000) return `${symbol}${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000)     return `${symbol}${(value / 1_000).toFixed(1)}k`
+  return `${symbol}${Math.round(value)}`
+}
+
+function CustomTooltip({ active, payload, label, symbol, convert }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-surface-700 border border-white/10 rounded-xl p-3 shadow-xl text-xs">
@@ -19,7 +26,7 @@ const CustomTooltip = ({ active, payload, label }) => {
           <span className="text-white font-semibold">
             {p.dataKey === 'pedidos'
               ? p.value
-              : '€' + new Intl.NumberFormat('es-ES').format(p.value)}
+              : symbol + new Intl.NumberFormat('es-ES').format(convert(p.value))}
           </span>
         </div>
       ))}
@@ -27,8 +34,21 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
-export default function SalesChart({ data, days = 30 }) {
+export default function SalesChart({ data, days = 30, symbol = '€', convert = (v) => v }) {
   const chartData = data ?? []
+
+  // Determine Y-axis scale from converted max to pick the right unit (k / M / plain)
+  const maxConverted = convert(
+    chartData.reduce((m, d) => Math.max(m, d.ventas ?? 0, d.beneficio ?? 0), 0)
+  )
+
+  const tickFormatter = (v) => {
+    const cv = convert(v)
+    if (maxConverted === 0) return `${symbol}0`
+    if (maxConverted >= 1_000_000) return `${symbol}${(cv / 1_000_000).toFixed(1)}M`
+    if (maxConverted >= 1_000)     return `${symbol}${(cv / 1_000).toFixed(1)}k`
+    return `${symbol}${Math.round(cv)}`
+  }
 
   return (
     <div className="card p-5">
@@ -39,7 +59,7 @@ export default function SalesChart({ data, days = 30 }) {
         </div>
         <div className="flex gap-2">
           {[
-            { key: 'ventas', color: '#4f6ef7', label: 'Ventas' },
+            { key: 'ventas',    color: '#4f6ef7', label: 'Ventas'    },
             { key: 'beneficio', color: '#10b981', label: 'Beneficio' },
           ].map(({ key, color, label }) => (
             <div key={key} className="flex items-center gap-1.5 text-xs text-white/50">
@@ -74,10 +94,13 @@ export default function SalesChart({ data, days = 30 }) {
             tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`}
-            width={48}
+            tickFormatter={tickFormatter}
+            width={52}
           />
-          <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)', strokeWidth: 1 }} />
+          <Tooltip
+            content={<CustomTooltip symbol={symbol} convert={convert} />}
+            cursor={{ stroke: 'rgba(255,255,255,0.08)', strokeWidth: 1 }}
+          />
           <Area
             type="monotone"
             dataKey="ventas"
