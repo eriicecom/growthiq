@@ -132,9 +132,13 @@ export function useShopifyOrders() {
     setSyncing(true)
     setSyncError('')
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/.netlify/functions/shopify-fetch-orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
+        },
       })
 
       let resData = {}

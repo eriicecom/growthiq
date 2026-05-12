@@ -89,11 +89,15 @@ export default function ShopifySettings() {
 
     const domain = shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase()
 
+    // Get JWT once for all function calls in this flow
+    const { data: { session } } = await supabase.auth.getSession()
+    const authHeader = session ? { 'Authorization': `Bearer ${session.access_token}` } : {}
+
     // Step 1: Validate credentials
     setStep('validating')
     const validateRes = await fetch('/.netlify/functions/shopify-validate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader },
       body: JSON.stringify({ shopDomain: domain, accessToken }),
     })
     const validateData = await validateRes.json()
@@ -104,11 +108,12 @@ export default function ShopifySettings() {
       return
     }
 
-    // Step 2: Save credentials to Supabase
+    // Step 2: Save credentials to Supabase (include user_id for multi-tenant RLS)
     setStep('saving')
+    const { data: { user } } = await supabase.auth.getUser()
     const { error: dbErr } = await supabase.from('shopify_connections').upsert(
-      { shop_domain: domain, access_token: accessToken, is_active: false },
-      { onConflict: 'shop_domain' }
+      { shop_domain: domain, access_token: accessToken, is_active: false, user_id: user?.id },
+      { onConflict: 'user_id,shop_domain' }
     )
     if (dbErr) {
       setError('Error al guardar la configuración. Verifica que Supabase esté configurado.')
@@ -122,13 +127,11 @@ export default function ShopifySettings() {
     setSyncTotal(0)
     setSyncCount(0)
 
-    // Get total count first from the saved sync_total after function updates it
-    startProgressPoll(9999) // start polling; will refine once function updates sync_total
+    startProgressPoll(9999)
 
-    // Kick off sync (may take up to 26s for large stores)
     const syncRes = await fetch('/.netlify/functions/shopify-sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader },
       body: JSON.stringify({ shopDomain: domain }),
     })
 
@@ -166,9 +169,12 @@ export default function ShopifySettings() {
     setSyncCount(0)
     startProgressPoll(connection.sync_total || 9999)
 
+    const { data: { session } } = await supabase.auth.getSession()
+    const authHeader = session ? { 'Authorization': `Bearer ${session.access_token}` } : {}
+
     const syncRes = await fetch('/.netlify/functions/shopify-sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader },
       body: JSON.stringify({ shopDomain: connection.shop_domain }),
     })
 

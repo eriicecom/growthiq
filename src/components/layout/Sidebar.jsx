@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   TrendingUp,
@@ -9,26 +9,28 @@ import {
   ShoppingCart,
   Settings,
   Zap,
-  ChevronRight,
+  LogOut,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { supabase } from '@/lib/supabase'
+import { useSession } from '@/contexts/AuthContext'
 
 const navGroups = [
   {
     label: 'Principal',
     items: [
       { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/sales', icon: TrendingUp, label: 'Ventas' },
-      { to: '/orders', icon: ShoppingCart, label: 'Pedidos' },
-      { to: '/products', icon: Package, label: 'Productos' },
-      { to: '/customers', icon: Users, label: 'Clientes' },
+      { to: '/sales',     icon: TrendingUp,      label: 'Ventas' },
+      { to: '/orders',    icon: ShoppingCart,    label: 'Pedidos' },
+      { to: '/products',  icon: Package,         label: 'Productos' },
+      { to: '/customers', icon: Users,           label: 'Clientes' },
     ],
   },
   {
     label: 'Publicidad',
     items: [
-      { to: '/meta-ads', icon: Facebook, label: 'Meta Ads' },
-      { to: '/tiktok-ads', icon: Music2, label: 'TikTok Ads' },
+      { to: '/meta-ads',   icon: Facebook, label: 'Meta Ads' },
+      { to: '/tiktok-ads', icon: Music2,   label: 'TikTok Ads' },
     ],
   },
   {
@@ -40,6 +42,16 @@ const navGroups = [
 ]
 
 export default function Sidebar({ collapsed }) {
+  const navigate = useNavigate()
+  const session  = useSession()
+  const email    = session?.user?.email ?? ''
+  const initial  = email.charAt(0).toUpperCase() || '?'
+
+  async function handleSignOut() {
+    await supabase?.auth.signOut()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <aside
       className={clsx(
@@ -93,21 +105,37 @@ export default function Sidebar({ collapsed }) {
         ))}
       </nav>
 
-      {/* User badge */}
-      {!collapsed && (
-        <div className="px-3 py-4 border-t border-white/5">
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors group">
-            <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-semibold text-white shrink-0">
-              E
+      {/* Footer: user info + sign out */}
+      <div className={clsx('border-t border-white/5', collapsed ? 'px-2 py-3' : 'px-3 py-4 space-y-1')}>
+        {collapsed ? (
+          <button
+            onClick={handleSignOut}
+            title="Cerrar sesión"
+            className="nav-item nav-item-inactive w-full justify-center px-0 text-white/40 hover:text-red-400 hover:bg-red-500/5"
+          >
+            <LogOut size={18} />
+          </button>
+        ) : (
+          <>
+            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg">
+              <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-semibold text-white shrink-0">
+                {initial}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-white truncate">{email}</p>
+                <p className="text-[10px] text-white/40">Admin</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-white truncate">Eric López</p>
-              <p className="text-[10px] text-white/40 truncate">Admin</p>
-            </div>
-            <ChevronRight size={12} className="text-white/30 group-hover:text-white/50 transition-colors" />
-          </div>
-        </div>
-      )}
+            <button
+              onClick={handleSignOut}
+              className="nav-item nav-item-inactive w-full text-left text-white/40 hover:text-red-400 hover:bg-red-500/5"
+            >
+              <LogOut size={16} className="shrink-0" />
+              <span>Cerrar sesión</span>
+            </button>
+          </>
+        )}
+      </div>
     </aside>
   )
 }
