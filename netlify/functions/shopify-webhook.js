@@ -88,29 +88,34 @@ export const handler = async (event) => {
     return { statusCode: 400, body: 'Missing shop domain header' }
   }
 
-  const { data: conn, error: connErr } = await supabase
+  // maybeSingle() returns null (not an error) when no row matches
+  const { data: conn } = await supabase
     .from('shopify_connections')
     .select('user_id')
     .eq('shop_domain', shopDomain)
     .limit(1)
-    .single()
+    .maybeSingle()
 
-  if (connErr || !conn?.user_id) {
-    console.error('[webhook] shop not found:', shopDomain, connErr?.message)
+  if (!conn?.user_id) {
+    console.warn('[webhook] shop not found:', shopDomain)
     // Return 200 so Shopify stops retrying — the shop simply isn't registered
     return { statusCode: 200, body: JSON.stringify({ ignored: true, reason: 'shop not found' }) }
   }
 
-  // ── Upsert order ─────────────────────────────────────────────────────────
+  // ── Upsert order (INSERT on new, UPDATE on existing) ─────────────────────
+  // onConflict: 'user_id,shopify_id' matches the UNIQUE constraint from migration 002.
+  // All status fields (financial_status, fulfillment_status, amount) are overwritten,
+  // so orders/updated events keep the DB in sync with Shopify in real time.
+  const mapped = mapOrder(order, conn.user_id)
   const { error: upsertErr } = await supabase
     .from('shopify_orders')
-    .upsert(mapOrder(order, conn.user_id), { onConflict: 'user_id,shopify_id' })
+    .upsert(mapped, { onConflict: 'user_id,shopify_id', ignoreDuplicates: false })
 
   if (upsertErr) {
     console.error('[webhook] upsert error:', upsertErr.message)
     return { statusCode: 500, body: 'Error saving order' }
   }
 
-  console.log(`[webhook] ${topic} | shop: ${shopDomain} | order: ${order.id} | user: ${conn.user_id}`)
+  console.log(`[webhook] ${topic} | order: ${order.id} | status: ${mapped.financial_status}/${mapped.fulfillment_status} | user: ${conn.user_id}`)
   return { statusCode: 200, body: JSON.stringify({ received: true }) }
 }
