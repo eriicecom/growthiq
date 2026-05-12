@@ -101,10 +101,14 @@ function processOrders(allOrders, period) {
   const curr = allOrders.filter(o => o.shopify_created_at >= wIso && o.shopify_created_at < wEnd)
   const prev = allOrders.filter(o => o.shopify_created_at >= cIso && o.shopify_created_at < cEnd)
 
-  const isRef  = o => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
-  const isVoid = o => o.financial_status === 'voided'
-  const isDone = o => o.fulfillment_status === 'fulfilled' && !isRef(o) && !isVoid(o)
-  const livRev = arr => arr.filter(o => !isRef(o) && !isVoid(o)).reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
+  const isRef     = o => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
+  const isVoid    = o => o.financial_status === 'voided'
+  // Completado: paid AND fully fulfilled
+  const isDone    = o => o.financial_status === 'paid' && o.fulfillment_status === 'fulfilled'
+  // Pendiente: paid but not yet fulfilled (null / unfulfilled / partial)
+  const isPending = o => o.financial_status === 'paid' &&
+    (o.fulfillment_status === null || o.fulfillment_status === 'unfulfilled' || o.fulfillment_status === 'partial')
+  const livRev    = arr => arr.filter(o => !isRef(o) && !isVoid(o)).reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
 
   const cRev  = livRev(curr),        pRev  = livRev(prev)
   const cCnt  = curr.length,         pCnt  = prev.length
@@ -169,7 +173,7 @@ function processOrders(allOrders, period) {
     products,
     funnel: {
       completados:  cDone,
-      pendientes:   curr.filter(o => !isDone(o) && !isRef(o) && !isVoid(o)).length,
+      pendientes:   curr.filter(isPending).length,
       cancelados:   curr.filter(isVoid).length,
       reembolsados: curr.filter(isRef).length,
       total: cCnt,

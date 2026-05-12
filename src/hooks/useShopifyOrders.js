@@ -205,7 +205,9 @@ export function useShopifyOrders(period = '30') {
       }
 
       const isRefunded = (o) => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
-      const sumNet     = (arr) => arr.reduce((s, o) => isRefunded(o) ? s : s + (parseFloat(o.amount) || 0), 0)
+      const isVoided   = (o) => o.financial_status === 'voided'
+      // Revenue: exclude refunded and voided (cancelled) orders
+      const sumNet     = (arr) => arr.reduce((s, o) => (isRefunded(o) || isVoided(o)) ? s : s + (parseFloat(o.amount) || 0), 0)
       const sumRefunds = (arr) => arr.filter(isRefunded).reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
 
       const cRevenue = sumNet(current);   const pRevenue = sumNet(previous)
@@ -214,7 +216,7 @@ export function useShopifyOrders(period = '30') {
       const pTicket  = pOrders ? pRevenue / pOrders : 0
 
       const sumCOGS = (arr) =>
-        arr.filter(o => !isRefunded(o))
+        arr.filter(o => !isRefunded(o) && !isVoided(o))
            .reduce((s, o) => s + calcLineItemsCOGS(o.line_items, costsMap, parseFloat(o.amount) || 0), 0)
 
       const cCOGS = Math.round(sumCOGS(current) * 100) / 100
