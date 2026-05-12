@@ -101,6 +101,14 @@ function processOrders(allOrders, period) {
   const curr = allOrders.filter(o => o.shopify_created_at >= wIso && o.shopify_created_at < wEnd)
   const prev = allOrders.filter(o => o.shopify_created_at >= cIso && o.shopify_created_at < cEnd)
 
+  // ── DEBUG: log actual status values coming from Supabase ──────────────────
+  console.group(`[Sales debug] period=${period} | total allOrders=${allOrders.length} | curr=${curr.length} | prev=${prev.length}`)
+  curr.slice(0, 10).forEach((o, i) => {
+    console.log(`  [${i}] ${o.order_number} | financial_status="${o.financial_status}" | fulfillment_status="${o.fulfillment_status}"`)
+  })
+  console.groupEnd()
+  // ── END DEBUG ─────────────────────────────────────────────────────────────
+
   const isRef     = o => o.financial_status === 'refunded' || o.financial_status === 'partially_refunded'
   const isVoid    = o => o.financial_status === 'voided'
   // Completado: paid AND fully fulfilled
