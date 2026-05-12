@@ -236,7 +236,7 @@ export default function Products() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  async function saveCosts(productId) {
+  async function saveCosts(productId, productTitle) {
     setSaving((p) => ({ ...p, [productId]: true }))
     setSaveError((p) => ({ ...p, [productId]: '' }))
 
@@ -270,6 +270,7 @@ export default function Products() {
         const insertPayload = rows.map((r) => ({
           user_id:            userId,
           shopify_product_id: productId,
+          product_title:      productTitle,
           quantity:           Number(r.qty),
           cost:               parseFloat(r.cost),
         }))
@@ -373,7 +374,7 @@ export default function Products() {
           onTiersChange={(newTiers) =>
             setTiers((p) => ({ ...p, [product.id]: newTiers }))
           }
-          onSave={() => saveCosts(product.id)}
+          onSave={() => saveCosts(product.id, product.title)}
           saving={!!saving[product.id]}
           saved={!!saved[product.id]}
           saveError={saveError[product.id] || ''}

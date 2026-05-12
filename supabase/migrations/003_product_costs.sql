@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS product_costs (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id             uuid REFERENCES auth.users(id) NOT NULL,
   shopify_product_id  text NOT NULL,
+  product_title       text,
   quantity            integer NOT NULL CHECK (quantity > 0),
   cost                numeric(10,2) NOT NULL CHECK (cost >= 0),
   created_at          timestamptz DEFAULT now(),
