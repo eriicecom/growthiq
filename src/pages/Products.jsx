@@ -61,7 +61,7 @@ function CostRow({ qty, cost, removable, onCostChange, onRemove }) {
 }
 
 // ── Product card ──────────────────────────────────────────────────────────────
-function ProductCard({ product, tiers, onTiersChange, onSave, saving, saved }) {
+function ProductCard({ product, tiers, onTiersChange, onSave, saving, saved, saveError }) {
   const minPrice = product.variants.length
     ? Math.min(...product.variants.map((v) => v.price))
     : 0
@@ -103,7 +103,7 @@ function ProductCard({ product, tiers, onTiersChange, onSave, saving, saved }) {
         <p className="text-xs text-white/40 shrink-0">
           Precio:{' '}
           <span className="text-white/70 font-medium">
-            €{minPrice.toFixed(2)}
+            ${minPrice.toFixed(2)}
           </span>
         </p>
       </div>
@@ -137,26 +137,33 @@ function ProductCard({ product, tiers, onTiersChange, onSave, saving, saved }) {
         </button>
       </div>
 
-      {/* Save button */}
-      <div className="flex justify-end border-t border-white/5 pt-3">
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            saved
-              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 cursor-default'
-              : 'btn-primary disabled:opacity-50 disabled:cursor-not-allowed'
-          }`}
-        >
-          {saving ? (
-            <><Loader2 size={12} className="animate-spin" /> Guardando...</>
-          ) : saved ? (
-            <><CheckCircle2 size={12} /> Guardado</>
-          ) : (
-            'Guardar costes'
-          )}
-        </button>
+      {/* Save button + inline error */}
+      <div className="border-t border-white/5 pt-3 space-y-2">
+        {saveError && (
+          <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-1.5">
+            {saveError}
+          </p>
+        )}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              saved
+                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 cursor-default'
+                : 'btn-primary disabled:opacity-50 disabled:cursor-not-allowed'
+            }`}
+          >
+            {saving ? (
+              <><Loader2 size={12} className="animate-spin" /> Guardando...</>
+            ) : saved ? (
+              <><CheckCircle2 size={12} /> Guardado</>
+            ) : (
+              'Guardar costes'
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -170,6 +177,7 @@ export default function Products() {
   const [tiers, setTiers]       = useState({}) // { productId: [{ qty, cost }] }
   const [saving, setSaving]     = useState({}) // { productId: bool }
   const [saved, setSaved]       = useState({}) // { productId: bool }
+  const [saveError, setSaveError] = useState({}) // { productId: string }
 
   const loadData = useCallback(async () => {
     if (!isSupabaseConfigured) { setLoading(false); return }
@@ -230,28 +238,62 @@ export default function Products() {
 
   async function saveCosts(productId) {
     setSaving((p) => ({ ...p, [productId]: true }))
+    setSaveError((p) => ({ ...p, [productId]: '' }))
 
-    const { data: { user } } = await supabase.auth.getUser()
-    const rows = (tiers[productId] || []).filter(
-      (r) => r.cost !== '' && !isNaN(parseFloat(r.cost)) && parseFloat(r.cost) >= 0
-    )
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser()
+      if (authError || !authData?.user) {
+        throw new Error(authError?.message || 'No hay sesión activa')
+      }
+      const userId = authData.user.id
+      console.log('[saveCosts] user_id:', userId, '| product_id:', productId)
 
-    await supabase.from('product_costs').delete().eq('user_id', user.id).eq('shopify_product_id', productId)
+      const rows = (tiers[productId] || []).filter(
+        (r) => r.cost !== '' && !isNaN(parseFloat(r.cost)) && parseFloat(r.cost) >= 0
+      )
+      console.log('[saveCosts] rows a guardar:', rows)
 
-    if (rows.length > 0) {
-      await supabase.from('product_costs').insert(
-        rows.map((r) => ({
-          user_id:            user.id,
+      // Delete existing rows for this product
+      const { error: deleteError } = await supabase
+        .from('product_costs')
+        .delete()
+        .eq('user_id', userId)
+        .eq('shopify_product_id', productId)
+
+      if (deleteError) {
+        console.error('[saveCosts] DELETE error:', deleteError)
+        throw new Error(deleteError.message)
+      }
+
+      // Insert new rows (only if there are any)
+      if (rows.length > 0) {
+        const insertPayload = rows.map((r) => ({
+          user_id:            userId,
           shopify_product_id: productId,
-          quantity:           r.qty,
+          quantity:           Number(r.qty),
           cost:               parseFloat(r.cost),
         }))
-      )
-    }
+        console.log('[saveCosts] INSERT payload:', insertPayload)
 
-    setSaving((p) => ({ ...p, [productId]: false }))
-    setSaved((p) => ({ ...p, [productId]: true }))
-    setTimeout(() => setSaved((p) => ({ ...p, [productId]: false })), 2000)
+        const { error: insertError } = await supabase
+          .from('product_costs')
+          .insert(insertPayload)
+
+        if (insertError) {
+          console.error('[saveCosts] INSERT error:', insertError)
+          throw new Error(insertError.message)
+        }
+      }
+
+      console.log('[saveCosts] OK')
+      setSaved((p) => ({ ...p, [productId]: true }))
+      setTimeout(() => setSaved((p) => ({ ...p, [productId]: false })), 2000)
+    } catch (err) {
+      console.error('[saveCosts] excepción:', err.message)
+      setSaveError((p) => ({ ...p, [productId]: err.message }))
+    } finally {
+      setSaving((p) => ({ ...p, [productId]: false }))
+    }
   }
 
   // ── States ────────────────────────────────────────────────────────────────
@@ -334,6 +376,7 @@ export default function Products() {
           onSave={() => saveCosts(product.id)}
           saving={!!saving[product.id]}
           saved={!!saved[product.id]}
+          saveError={saveError[product.id] || ''}
         />
       ))}
     </div>
