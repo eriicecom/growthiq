@@ -3,7 +3,8 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-function buildChartData(orders, numDays, metaByDate = {}) {
+// adSpendByDate: { 'YYYY-MM-DD': totalSpend } (Meta + TikTok combined)
+function buildChartData(orders, numDays, adSpendByDate = {}) {
   const days = []
   for (let i = numDays - 1; i >= 0; i--) {
     const d = new Date()
@@ -22,9 +23,9 @@ function buildChartData(orders, numDays, metaByDate = {}) {
       day.beneficio += Math.round(amount * 0.25)
     }
   })
-  // Subtract daily Meta Ads spend from estimated beneficio
+  // Subtract combined daily ad spend from estimated beneficio
   for (const day of days) {
-    day.beneficio -= (metaByDate[day.key] || 0)
+    day.beneficio -= (adSpendByDate[day.key] || 0)
   }
   return days.map(({ key, ...rest }) => rest)
 }
@@ -45,22 +46,16 @@ function buildCostsMap(rows) {
 
 function calcLineItemsCOGS(lineItems, costsMap, fallbackAmount) {
   if (!lineItems?.length) return fallbackAmount * 0.30
-
   let total = 0
   for (const item of lineItems) {
     const pid = item.product_id
     const qty = item.quantity || 1
     const itemTotal = (parseFloat(item.price) || 0) * qty
-
     if (pid && costsMap[pid]) {
       const tiers = costsMap[pid]
-      if (tiers[qty] !== undefined) {
-        total += tiers[qty]
-      } else if (tiers[1] !== undefined) {
-        total += tiers[1] * qty
-      } else {
-        total += itemTotal * 0.30
-      }
+      if (tiers[qty] !== undefined)      total += tiers[qty]
+      else if (tiers[1] !== undefined)   total += tiers[1] * qty
+      else                               total += itemTotal * 0.30
     } else {
       total += itemTotal * 0.30
     }
@@ -75,22 +70,25 @@ const ZERO_KPIS = {
   beneficio:    { value: 0, change: 0 },
   cogs:         { value: 0, change: 0 },
   metaSpend:    { value: 0, change: 0 },
+  tiktokSpend:  { value: 0, change: 0 },
   devoluciones: { value: 0, change: 0 },
   reembolsos:   { value: 0, change: 0 },
   margen:       { value: 0, change: 0 },
 }
 
 const EMPTY_STATE = {
-  orders: [],
-  kpis: {},
-  chartData: [],
-  loading: false,
-  hasRealData: false,
+  orders:         [],
+  kpis:           {},
+  chartData:      [],
+  loading:        false,
+  hasRealData:    false,
+  metaConnected:  false,
+  tiktokConnected: false,
 }
 
 export function useShopifyOrders(days = 30) {
   const [state, setState] = useState({ ...EMPTY_STATE, loading: isSupabaseConfigured })
-  const [syncing, setSyncing] = useState(false)
+  const [syncing, setSyncing]     = useState(false)
   const [syncError, setSyncError] = useState('')
 
   const fetchData = useCallback(async () => {
@@ -99,12 +97,15 @@ export function useShopifyOrders(days = 30) {
     try {
       const windowStart  = new Date(); windowStart.setDate(windowStart.getDate() - days)
       const compareStart = new Date(); compareStart.setDate(compareStart.getDate() - (days * 2))
+      const compareStartDate  = compareStart.toISOString().slice(0, 10)
 
       const [
         { data: allOrders, error: ordersError },
         { data: connRow },
         { data: costsRows },
         { data: metaRows },
+        { data: metaConn },
+        { data: tiktokRows },
       ] = await Promise.all([
         supabase
           .from('shopify_orders')
@@ -117,42 +118,65 @@ export function useShopifyOrders(days = 30) {
           .eq('is_active', true)
           .limit(1)
           .maybeSingle(),
+        // product_costs / meta_ad_spend / tiktok_ad_spend may not exist yet — errors return null data
         supabase
           .from('product_costs')
           .select('shopify_product_id, quantity, cost'),
-        // meta_ad_spend may not exist yet — error silently returns null data
         supabase
           .from('meta_ad_spend')
           .select('date, spend')
-          .gte('date', compareStart.toISOString().slice(0, 10)),
+          .gte('date', compareStartDate),
+        supabase
+          .from('meta_connections')
+          .select('user_id')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('tiktok_ad_spend')
+          .select('date, spend')
+          .gte('date', compareStartDate),
       ])
 
       if (ordersError) throw ordersError
 
-      const costsMap = buildCostsMap(costsRows)
+      const costsMap      = buildCostsMap(costsRows)
+      const metaConnected = !!metaConn
+      // tiktokConnected: will be true once tiktok_connections table + integration exists
+      const tiktokConnected = false
 
-      // Build meta spend lookup by date
-      const safeMetaRows = metaRows || []
+      // Build combined ad spend lookup by date (Meta + TikTok)
       const windowStartDate = windowStart.toISOString().slice(0, 10)
-      const metaByDate = {}
+      const safeMetaRows   = metaRows   || []
+      const safeTikTokRows = tiktokRows || []
+
+      const adSpendByDate = {}
       for (const r of safeMetaRows) {
-        metaByDate[r.date] = parseFloat(r.spend) || 0
+        adSpendByDate[r.date] = (adSpendByDate[r.date] || 0) + (parseFloat(r.spend) || 0)
       }
-      const cMetaSpend = safeMetaRows
-        .filter((r) => r.date >= windowStartDate)
-        .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
-      const pMetaSpend = safeMetaRows
-        .filter((r) => r.date < windowStartDate)
-        .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
+      for (const r of safeTikTokRows) {
+        adSpendByDate[r.date] = (adSpendByDate[r.date] || 0) + (parseFloat(r.spend) || 0)
+      }
+
+      const sumPeriodSpend = (rows, from, to) =>
+        rows.filter((r) => r.date >= from && (to ? r.date < to : true))
+            .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
+
+      const cMetaSpend   = sumPeriodSpend(safeMetaRows,   windowStartDate)
+      const pMetaSpend   = sumPeriodSpend(safeMetaRows,   compareStartDate, windowStartDate)
+      const cTikTokSpend = sumPeriodSpend(safeTikTokRows, windowStartDate)
+      const pTikTokSpend = sumPeriodSpend(safeTikTokRows, compareStartDate, windowStartDate)
 
       if (!allOrders?.length) {
         setState(!!connRow
           ? {
               orders: [],
               kpis: ZERO_KPIS,
-              chartData: buildChartData([], days, metaByDate),
+              chartData: buildChartData([], days, adSpendByDate),
               loading: false,
               hasRealData: true,
+              metaConnected,
+              tiktokConnected,
             }
           : { ...EMPTY_STATE }
         )
@@ -180,9 +204,9 @@ export function useShopifyOrders(days = 30) {
       const cCOGS = Math.round(sumCOGS(current) * 100) / 100
       const pCOGS = Math.round(sumCOGS(previous) * 100) / 100
 
-      // Beneficio includes COGS and Meta Ads spend
-      const cBeneficio = Math.round((cRevenue - cCOGS - cMetaSpend) * 100) / 100
-      const pBeneficio = Math.round((pRevenue - pCOGS - pMetaSpend) * 100) / 100
+      // Beneficio = Ventas − COGS − Meta Ads − TikTok Ads
+      const cBeneficio = Math.round((cRevenue - cCOGS - cMetaSpend - cTikTokSpend) * 100) / 100
+      const pBeneficio = Math.round((pRevenue - pCOGS - pMetaSpend - pTikTokSpend) * 100) / 100
 
       const cRefundN = current.filter(isRefunded).length
       const pRefundN = previous.filter(isRefunded).length
@@ -197,23 +221,26 @@ export function useShopifyOrders(days = 30) {
       setState({
         orders:   current.slice(0, 10),
         kpis: {
-          ventas:       { value: cRevenue,    change: calcChange(cRevenue,    pRevenue)    },
-          pedidos:      { value: cOrders,     change: calcChange(cOrders,     pOrders)     },
-          ticket:       { value: cTicket,     change: calcChange(cTicket,     pTicket)     },
-          beneficio:    { value: cBeneficio,  change: calcChange(cBeneficio,  pBeneficio)  },
-          cogs:         { value: cCOGS,       change: calcChange(cCOGS,       pCOGS)       },
-          metaSpend:    { value: Math.round(cMetaSpend * 100) / 100, change: calcChange(cMetaSpend, pMetaSpend) },
-          devoluciones: { value: cDevPct,     change: calcChange(cDevPct,     pDevPct)     },
-          reembolsos:   { value: cReemb,      change: calcChange(cReemb,      pReemb)      },
-          margen:       { value: cMargen,     change: calcChange(cMargen,     pMargen)     },
+          ventas:       { value: cRevenue,   change: calcChange(cRevenue,    pRevenue)    },
+          pedidos:      { value: cOrders,    change: calcChange(cOrders,     pOrders)     },
+          ticket:       { value: cTicket,    change: calcChange(cTicket,     pTicket)     },
+          beneficio:    { value: cBeneficio, change: calcChange(cBeneficio,  pBeneficio)  },
+          cogs:         { value: cCOGS,      change: calcChange(cCOGS,       pCOGS)       },
+          metaSpend:    { value: Math.round(cMetaSpend   * 100) / 100, change: calcChange(cMetaSpend,   pMetaSpend)   },
+          tiktokSpend:  { value: Math.round(cTikTokSpend * 100) / 100, change: calcChange(cTikTokSpend, pTikTokSpend) },
+          devoluciones: { value: cDevPct,    change: calcChange(cDevPct,     pDevPct)     },
+          reembolsos:   { value: cReemb,     change: calcChange(cReemb,      pReemb)      },
+          margen:       { value: cMargen,    change: calcChange(cMargen,     pMargen)     },
         },
         chartData: buildChartData(
           [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at)),
           days,
-          metaByDate
+          adSpendByDate
         ),
         loading: false,
         hasRealData: true,
+        metaConnected,
+        tiktokConnected,
       })
     } catch (err) {
       console.error('[useShopifyOrders]', err)

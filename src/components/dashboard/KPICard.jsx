@@ -24,6 +24,7 @@ const COLOR_MAP = {
   red:     { icon: 'bg-red-500/10     text-red-400'     },
   teal:    { icon: 'bg-teal-500/10    text-teal-400'    },
   blue:    { icon: 'bg-blue-500/10    text-blue-400'    },
+  pink:    { icon: 'bg-pink-500/10    text-pink-400'    },
 }
 
 export default function KPICard({
@@ -34,6 +35,7 @@ export default function KPICard({
   isPercent = false,
   inverseColors = false,  // true = lower change is good (e.g. devoluciones, reembolsos)
   note,                   // small explanatory text shown below the change indicator
+  connectNode = null,     // ReactNode: shown instead of trend when value is 0 and platform not connected
   icon: Icon,
   color = 'brand',
   loading = false,
@@ -62,16 +64,21 @@ export default function KPICard({
             {formatValue(value, prefix, isPercent)}
           </p>
 
-          <div className={clsx(
-            'flex items-center gap-1 mt-1.5 text-xs font-medium',
-            isGood ? 'text-emerald-400' : 'text-red-400'
-          )}>
-            {isGood ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-            <span>{change >= 0 ? '+' : ''}{change}% vs período anterior</span>
-          </div>
-
-          {note && (
-            <p className="text-[10px] text-white/25 mt-1.5 leading-relaxed">{note}</p>
+          {connectNode && value === 0 ? (
+            connectNode
+          ) : (
+            <>
+              <div className={clsx(
+                'flex items-center gap-1 mt-1.5 text-xs font-medium',
+                isGood ? 'text-emerald-400' : 'text-red-400'
+              )}>
+                {isGood ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                <span>{change >= 0 ? '+' : ''}{change}% vs período anterior</span>
+              </div>
+              {note && (
+                <p className="text-[10px] text-white/25 mt-1.5 leading-relaxed">{note}</p>
+              )}
+            </>
           )}
         </div>
       )}

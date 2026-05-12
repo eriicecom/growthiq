@@ -1,5 +1,5 @@
 import {
-  Euro, TrendingUp, ShoppingBag, Package, RotateCcw,
+  Euro, TrendingUp, ShoppingBag, Package,
   CreditCard, Percent, RefreshCw, Loader2, Settings,
   AlertCircle, ChevronDown, Facebook,
 } from 'lucide-react'
@@ -12,23 +12,39 @@ import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
 import { usePeriod } from '@/contexts/PeriodContext'
 import { isSupabaseConfigured } from '@/lib/supabase'
 
-// isMoney   → apply currency conversion + show symbol
-// isPercent → display as X.X% (no conversion)
+function TikTokIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.21 8.21 0 0 0 4.79 1.54V6.77a4.85 4.85 0 0 1-1.02-.08z" />
+    </svg>
+  )
+}
+
+// isMoney      → apply currency conversion + show symbol
+// isPercent    → display as X.X% (no conversion)
 // inverseColors → red when rising, green when falling (bad if high)
+// connectText  → label shown as a link to /settings when platform not connected
 const KPI_CARDS = [
-  { title: 'Ventas Totales',          key: 'ventas',       icon: Euro,       color: 'brand',   isMoney: true  },
-  { title: 'Ticket Medio',            key: 'ticket',       icon: TrendingUp, color: 'emerald', isMoney: true  },
-  { title: 'Pedidos',                 key: 'pedidos',      icon: ShoppingBag,color: 'violet'   },
-  { title: 'Beneficio Neto',          key: 'beneficio',    icon: TrendingUp, color: 'amber',   isMoney: true  },
+  { title: 'Ventas Totales',     key: 'ventas',      icon: Euro,        color: 'brand',   isMoney: true  },
+  { title: 'Ticket Medio',       key: 'ticket',      icon: TrendingUp,  color: 'emerald', isMoney: true  },
+  { title: 'Pedidos',            key: 'pedidos',     icon: ShoppingBag, color: 'violet'   },
+  { title: 'Beneficio Neto',     key: 'beneficio',   icon: TrendingUp,  color: 'amber',   isMoney: true  },
   {
     title: 'Costes de Producto',
     key: 'cogs', icon: Package, color: 'rose', isMoney: true,
     note: 'Estimado · Configura costes reales en Productos',
   },
-  { title: 'Gasto Meta Ads',          key: 'metaSpend',    icon: Facebook,   color: 'blue',    isMoney: true,   inverseColors: true },
-  { title: '% Devoluciones',          key: 'devoluciones', icon: RotateCcw,  color: 'orange',  isPercent: true, inverseColors: true },
-  { title: 'Reembolsos',              key: 'reembolsos',   icon: CreditCard, color: 'red',     isMoney: true,   inverseColors: true },
-  { title: 'Margen Neto',             key: 'margen',       icon: Percent,    color: 'teal',    isPercent: true  },
+  {
+    title: 'Gasto Meta Ads',
+    key: 'metaSpend', icon: Facebook, color: 'blue', isMoney: true, inverseColors: true,
+    connectText: 'Conectar Meta Ads',
+  },
+  {
+    title: 'Gasto TikTok Ads',
+    key: 'tiktokSpend', icon: TikTokIcon, color: 'pink', isMoney: true, inverseColors: true,
+    connectText: 'Conectar TikTok Ads',
+  },
+  { title: 'Margen Neto',        key: 'margen',      icon: Percent,     color: 'teal',    isPercent: true },
 ]
 
 function CurrencySelector({ currency, setCurrency }) {
@@ -73,7 +89,11 @@ function ErrorBanner({ message }) {
 
 export default function Dashboard() {
   const { days } = usePeriod()
-  const { orders, kpis, chartData, loading, hasRealData, sync, syncing, syncError } = useShopifyOrders(days)
+  const {
+    orders, kpis, chartData, loading, hasRealData,
+    sync, syncing, syncError,
+    metaConnected, tiktokConnected,
+  } = useShopifyOrders(days)
   const { currency, setCurrency, symbol, convert } = useCurrency()
 
   // ── Supabase not configured ──────────────────────────────────────────────
@@ -124,6 +144,10 @@ export default function Dashboard() {
 
   const showLoading = loading || syncing
 
+  // Build "connect" nodes for ad platform KPIs when not connected
+  const adConnected = { metaSpend: metaConnected, tiktokSpend: tiktokConnected }
+  const adConnectTo = { metaSpend: '/settings', tiktokSpend: '/settings' }
+
   return (
     <div className="space-y-6 max-w-screen-xl mx-auto">
 
@@ -143,11 +167,26 @@ export default function Dashboard() {
 
       {/* 8 KPI cards — 4 cols desktop, 2 tablet, 1 mobile */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {KPI_CARDS.map(({ title, key, icon, color, isMoney, isPercent, inverseColors, note }) => {
+        {KPI_CARDS.map(({ title, key, icon, color, isMoney, isPercent, inverseColors, note, connectText }) => {
           const metric = kpis[key]
           if (!metric) return null
+
           const displayValue = isMoney ? convert(metric.value) : metric.value
-          const prefix = isMoney ? symbol : ''
+          const prefix       = isMoney ? symbol : ''
+
+          // For ad platform KPIs: show "Conectar X" link when platform not connected
+          let connectNode = null
+          if (connectText && key in adConnected && !adConnected[key]) {
+            connectNode = (
+              <Link
+                to={adConnectTo[key]}
+                className="flex items-center gap-1 mt-1.5 text-[10px] text-white/35 hover:text-white/60 transition-colors"
+              >
+                {connectText} →
+              </Link>
+            )
+          }
+
           return (
             <KPICard
               key={key}
@@ -158,6 +197,7 @@ export default function Dashboard() {
               isPercent={isPercent}
               inverseColors={inverseColors}
               note={note}
+              connectNode={connectNode}
               icon={icon}
               color={color}
               loading={showLoading}
