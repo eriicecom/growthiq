@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bell, Search, PanelLeftClose, PanelLeftOpen, X, ChevronDown } from 'lucide-react'
+import { Bell, Search, PanelLeftClose, PanelLeftOpen, X, ChevronDown, Menu } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePeriod, PERIODS } from '@/contexts/PeriodContext'
 
@@ -17,7 +17,7 @@ const pageTitles = {
 function PeriodSelector() {
   const { days, setDays } = usePeriod()
   return (
-    <div className="relative hidden sm:block">
+    <div className="relative">
       <select
         value={days}
         onChange={(e) => setDays(Number(e.target.value))}
@@ -34,7 +34,7 @@ function PeriodSelector() {
 
 function NotificationsPanel({ onClose }) {
   return (
-    <div className="absolute right-0 top-full mt-2 w-80 z-50 card shadow-2xl border border-white/8 overflow-hidden">
+    <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-1rem)] z-50 card shadow-2xl border border-white/8 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
         <p className="text-sm font-semibold text-white">Notificaciones</p>
         <button
@@ -57,14 +57,16 @@ function NotificationsPanel({ onClose }) {
   )
 }
 
-export default function Header({ collapsed, onToggle }) {
+export default function Header({ collapsed, onToggle, onMobileMenuOpen }) {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
   const page = pageTitles[pathname] ?? { title: 'GrowthIQ', subtitle: '' }
 
-  const [searchTerm,  setSearchTerm]  = useState('')
-  const [notifOpen,   setNotifOpen]   = useState(false)
-  const notifRef = useRef(null)
+  const [searchTerm,   setSearchTerm]   = useState('')
+  const [searchOpen,   setSearchOpen]   = useState(false)
+  const [notifOpen,    setNotifOpen]    = useState(false)
+  const notifRef  = useRef(null)
+  const searchRef = useRef(null)
 
   // Close notifications on click outside
   useEffect(() => {
@@ -77,21 +79,43 @@ export default function Header({ collapsed, onToggle }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [notifOpen])
 
+  // Close mobile search on click outside
+  useEffect(() => {
+    function handler(e) {
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setSearchOpen(false)
+      }
+    }
+    if (searchOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [searchOpen])
+
   function handleSearch(e) {
     e.preventDefault()
     const q = searchTerm.trim()
     if (q) {
       navigate(`/orders?q=${encodeURIComponent(q)}`)
       setSearchTerm('')
+      setSearchOpen(false)
     }
   }
 
   return (
-    <header className="h-16 bg-surface-800 border-b border-white/5 flex items-center px-6 gap-4 shrink-0">
-      {/* Sidebar toggle */}
+    <header className="h-16 bg-surface-800 border-b border-white/5 flex items-center px-4 lg:px-6 gap-3 shrink-0">
+
+      {/* Mobile hamburger — visible only on mobile */}
+      <button
+        onClick={onMobileMenuOpen}
+        className="text-white/40 hover:text-white transition-colors -ml-1 lg:hidden"
+        aria-label="Abrir menú"
+      >
+        <Menu size={20} />
+      </button>
+
+      {/* Desktop sidebar toggle — hidden on mobile */}
       <button
         onClick={onToggle}
-        className="text-white/40 hover:text-white transition-colors -ml-1"
+        className="hidden lg:block text-white/40 hover:text-white transition-colors -ml-1"
         aria-label="Toggle sidebar"
       >
         {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
@@ -101,11 +125,11 @@ export default function Header({ collapsed, onToggle }) {
       <div className="flex-1 min-w-0">
         <h1 className="text-[15px] font-semibold text-white leading-tight truncate">{page.title}</h1>
         {page.subtitle && (
-          <p className="text-[11px] text-white/40 leading-tight truncate">{page.subtitle}</p>
+          <p className="text-[11px] text-white/40 leading-tight truncate hidden sm:block">{page.subtitle}</p>
         )}
       </div>
 
-      {/* Search */}
+      {/* Desktop search — hidden below md */}
       <form
         onSubmit={handleSearch}
         className="hidden md:flex items-center gap-2 bg-surface-700 border border-white/5 rounded-lg px-3 py-2 w-56 hover:border-white/10 focus-within:border-white/15 transition-colors"
@@ -132,6 +156,42 @@ export default function Header({ collapsed, onToggle }) {
         }
       </form>
 
+      {/* Mobile search icon — visible below md */}
+      <div ref={searchRef} className="relative md:hidden">
+        <button
+          onClick={() => setSearchOpen((v) => !v)}
+          className="text-white/40 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5"
+          aria-label="Buscar"
+        >
+          <Search size={16} />
+        </button>
+        {searchOpen && (
+          <form
+            onSubmit={handleSearch}
+            className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] max-w-xs z-50 flex items-center gap-2 bg-surface-700 border border-white/10 rounded-lg px-3 py-2 shadow-2xl"
+          >
+            <Search size={14} className="text-white/30 shrink-0" />
+            <input
+              autoFocus
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar pedido, cliente..."
+              className="flex-1 bg-transparent text-xs text-white placeholder-white/30 outline-none"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="text-white/30 hover:text-white/60 transition-colors"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </form>
+        )}
+      </div>
+
       {/* Notifications */}
       <div ref={notifRef} className="relative">
         <button
@@ -140,13 +200,12 @@ export default function Header({ collapsed, onToggle }) {
           aria-label="Notificaciones"
         >
           <Bell size={16} />
-          {/* Red dot — will show when there are real notifications */}
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-brand-500 rounded-full" />
         </button>
         {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
       </div>
 
-      {/* Period selector */}
+      {/* Period selector — always visible */}
       <PeriodSelector />
     </header>
   )

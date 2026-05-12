@@ -41,20 +41,20 @@ function CostRow({ qty, cost, removable, onCostChange, onRemove }) {
           value={cost}
           onChange={(e) => onCostChange(e.target.value)}
           placeholder="0.00"
-          className="w-full bg-surface-700 border border-white/8 rounded-lg pl-7 pr-3 py-1.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-brand-500/40 focus:ring-1 focus:ring-brand-500/15 transition-colors"
+          className="w-full bg-surface-700 border border-white/8 rounded-lg pl-7 pr-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-brand-500/40 focus:ring-1 focus:ring-brand-500/15 transition-colors"
         />
       </div>
       {removable ? (
         <button
           type="button"
           onClick={onRemove}
-          className="p-1 text-white/20 hover:text-red-400 transition-colors rounded"
+          className="p-2.5 text-white/20 hover:text-red-400 transition-colors rounded"
           title="Eliminar tramo"
         >
           <X size={14} />
         </button>
       ) : (
-        <div className="w-6" />
+        <div className="w-9" />
       )}
     </div>
   )
@@ -130,7 +130,7 @@ function ProductCard({ product, tiers, onTiersChange, onSave, saving, saved, sav
         <button
           type="button"
           onClick={addTier}
-          className="flex items-center gap-1.5 text-xs text-brand-400/60 hover:text-brand-400 transition-colors mt-1"
+          className="flex items-center gap-1.5 text-xs text-brand-400/60 hover:text-brand-400 transition-colors mt-1 py-2"
         >
           <Plus size={13} />
           Añadir tramo de cantidad

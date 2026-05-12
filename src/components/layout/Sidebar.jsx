@@ -1,4 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   TrendingUp,
@@ -41,11 +42,17 @@ const navGroups = [
   },
 ]
 
-export default function Sidebar({ collapsed }) {
-  const navigate = useNavigate()
-  const session  = useSession()
-  const email    = session?.user?.email ?? ''
-  const initial  = email.charAt(0).toUpperCase() || '?'
+export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
+  const navigate  = useNavigate()
+  const { pathname } = useLocation()
+  const session   = useSession()
+  const email     = session?.user?.email ?? ''
+  const initial   = email.charAt(0).toUpperCase() || '?'
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    onMobileClose?.()
+  }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSignOut() {
     await supabase?.auth.signOut()
@@ -55,7 +62,12 @@ export default function Sidebar({ collapsed }) {
   return (
     <aside
       className={clsx(
-        'flex flex-col h-full bg-surface-800 border-r border-white/5 transition-all duration-300',
+        // Mobile: fixed drawer that slides in/out
+        'fixed inset-y-0 left-0 z-40 flex flex-col h-full bg-surface-800 border-r border-white/5 transition-all duration-300',
+        // Mobile open/close via translate
+        mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        // Desktop: static, always visible, no translate
+        'lg:static lg:translate-x-0 lg:z-auto',
         collapsed ? 'w-16' : 'w-60'
       )}
     >

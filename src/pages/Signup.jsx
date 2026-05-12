@@ -44,7 +44,7 @@ export default function Signup() {
           <span className="font-semibold text-white text-xl tracking-tight">GrowthIQ</span>
         </div>
 
-        <div className="card p-8 space-y-6">
+        <div className="card p-4 sm:p-8 space-y-6">
           <div>
             <h1 className="text-lg font-semibold text-white">Crear cuenta</h1>
             <p className="text-sm text-white/40 mt-1">Empieza a analizar tu negocio</p>
