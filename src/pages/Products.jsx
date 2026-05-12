@@ -33,7 +33,7 @@ function CostRow({ qty, cost, removable, onCostChange, onRemove }) {
         {qty} {qty === 1 ? 'unidad' : 'unidades'}
       </span>
       <div className="relative flex-1 max-w-[180px]">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/30 pointer-events-none">€</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/30 pointer-events-none">$</span>
         <input
           type="number"
           min="0"
@@ -199,6 +199,21 @@ export default function Products() {
     setProducts(shopifyProducts)
 
     const savedCosts = costsRes.data || []
+
+    // Remove costs for products that no longer exist in Shopify
+    const liveIds = new Set(shopifyProducts.map((p) => p.id))
+    const staleIds = [...new Set(savedCosts.map((r) => r.shopify_product_id))].filter(
+      (id) => !liveIds.has(id)
+    )
+    if (staleIds.length > 0) {
+      await supabase
+        .from('product_costs')
+        .delete()
+        .eq('user_id', session.user.id)
+        .in('shopify_product_id', staleIds)
+    }
+
+    // Build tiers state from the remaining (non-stale) saved costs
     const tiersState = {}
     for (const prod of shopifyProducts) {
       const rows = savedCosts
