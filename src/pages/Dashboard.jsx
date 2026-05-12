@@ -1,7 +1,7 @@
 import {
   Euro, TrendingUp, ShoppingBag, Package, RotateCcw,
   CreditCard, Percent, RefreshCw, Loader2, Settings,
-  AlertCircle, ChevronDown,
+  AlertCircle, ChevronDown, Facebook,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import KPICard from '@/components/dashboard/KPICard'
@@ -25,6 +25,7 @@ const KPI_CARDS = [
     key: 'cogs', icon: Package, color: 'rose', isMoney: true,
     note: 'Estimado · Configura costes reales en Productos',
   },
+  { title: 'Gasto Meta Ads',          key: 'metaSpend',    icon: Facebook,   color: 'blue',    isMoney: true,   inverseColors: true },
   { title: '% Devoluciones',          key: 'devoluciones', icon: RotateCcw,  color: 'orange',  isPercent: true, inverseColors: true },
   { title: 'Reembolsos',              key: 'reembolsos',   icon: CreditCard, color: 'red',     isMoney: true,   inverseColors: true },
   { title: 'Margen Neto',             key: 'margen',       icon: Percent,    color: 'teal',    isPercent: true  },

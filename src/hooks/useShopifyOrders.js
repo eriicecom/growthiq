@@ -3,7 +3,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-function buildChartData(orders, numDays) {
+function buildChartData(orders, numDays, metaByDate = {}) {
   const days = []
   for (let i = numDays - 1; i >= 0; i--) {
     const d = new Date()
@@ -17,11 +17,15 @@ function buildChartData(orders, numDays) {
     const day = days.find((d) => d.key === key)
     if (day) {
       const amount = parseFloat(order.amount) || 0
-      day.ventas   += amount
-      day.pedidos  += 1
+      day.ventas    += amount
+      day.pedidos   += 1
       day.beneficio += Math.round(amount * 0.25)
     }
   })
+  // Subtract daily Meta Ads spend from estimated beneficio
+  for (const day of days) {
+    day.beneficio -= (metaByDate[day.key] || 0)
+  }
   return days.map(({ key, ...rest }) => rest)
 }
 
@@ -30,7 +34,6 @@ function calcChange(current, previous) {
   return Math.round(((current - previous) / previous) * 100 * 10) / 10
 }
 
-// Build { productId: { qty: cost, ... } } lookup from product_costs rows
 function buildCostsMap(rows) {
   const map = {}
   for (const row of rows || []) {
@@ -40,8 +43,6 @@ function buildCostsMap(rows) {
   return map
 }
 
-// COGS for a single order's line_items.
-// Falls back to 30% of item price if no cost configured for the product.
 function calcLineItemsCOGS(lineItems, costsMap, fallbackAmount) {
   if (!lineItems?.length) return fallbackAmount * 0.30
 
@@ -54,17 +55,13 @@ function calcLineItemsCOGS(lineItems, costsMap, fallbackAmount) {
     if (pid && costsMap[pid]) {
       const tiers = costsMap[pid]
       if (tiers[qty] !== undefined) {
-        // Exact tier match
         total += tiers[qty]
       } else if (tiers[1] !== undefined) {
-        // Fallback: cost for 1 unit × quantity
         total += tiers[1] * qty
       } else {
-        // No usable tier → 30% estimate
         total += itemTotal * 0.30
       }
     } else {
-      // Product not configured → 30% estimate
       total += itemTotal * 0.30
     }
   }
@@ -77,6 +74,7 @@ const ZERO_KPIS = {
   ticket:       { value: 0, change: 0 },
   beneficio:    { value: 0, change: 0 },
   cogs:         { value: 0, change: 0 },
+  metaSpend:    { value: 0, change: 0 },
   devoluciones: { value: 0, change: 0 },
   reembolsos:   { value: 0, change: 0 },
   margen:       { value: 0, change: 0 },
@@ -106,6 +104,7 @@ export function useShopifyOrders(days = 30) {
         { data: allOrders, error: ordersError },
         { data: connRow },
         { data: costsRows },
+        { data: metaRows },
       ] = await Promise.all([
         supabase
           .from('shopify_orders')
@@ -118,19 +117,43 @@ export function useShopifyOrders(days = 30) {
           .eq('is_active', true)
           .limit(1)
           .maybeSingle(),
-        // product_costs may not exist yet (before migration) — error is ignored
         supabase
           .from('product_costs')
           .select('shopify_product_id, quantity, cost'),
+        // meta_ad_spend may not exist yet — error silently returns null data
+        supabase
+          .from('meta_ad_spend')
+          .select('date, spend')
+          .gte('date', compareStart.toISOString().slice(0, 10)),
       ])
 
       if (ordersError) throw ordersError
 
       const costsMap = buildCostsMap(costsRows)
 
+      // Build meta spend lookup by date
+      const safeMetaRows = metaRows || []
+      const windowStartDate = windowStart.toISOString().slice(0, 10)
+      const metaByDate = {}
+      for (const r of safeMetaRows) {
+        metaByDate[r.date] = parseFloat(r.spend) || 0
+      }
+      const cMetaSpend = safeMetaRows
+        .filter((r) => r.date >= windowStartDate)
+        .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
+      const pMetaSpend = safeMetaRows
+        .filter((r) => r.date < windowStartDate)
+        .reduce((s, r) => s + (parseFloat(r.spend) || 0), 0)
+
       if (!allOrders?.length) {
         setState(!!connRow
-          ? { orders: [], kpis: ZERO_KPIS, chartData: buildChartData([], days), loading: false, hasRealData: true }
+          ? {
+              orders: [],
+              kpis: ZERO_KPIS,
+              chartData: buildChartData([], days, metaByDate),
+              loading: false,
+              hasRealData: true,
+            }
           : { ...EMPTY_STATE }
         )
         return
@@ -149,7 +172,6 @@ export function useShopifyOrders(days = 30) {
       const cTicket  = cOrders ? Math.round((cRevenue / cOrders) * 100) / 100 : 0
       const pTicket  = pOrders ? pRevenue / pOrders : 0
 
-      // Real COGS from product_costs; falls back to 30% per item when unconfigured
       const sumCOGS = (arr) =>
         arr
           .filter((o) => !isRefunded(o))
@@ -158,8 +180,9 @@ export function useShopifyOrders(days = 30) {
       const cCOGS = Math.round(sumCOGS(current) * 100) / 100
       const pCOGS = Math.round(sumCOGS(previous) * 100) / 100
 
-      const cBeneficio = Math.round((cRevenue - cCOGS) * 100) / 100
-      const pBeneficio = Math.round((pRevenue - pCOGS) * 100) / 100
+      // Beneficio includes COGS and Meta Ads spend
+      const cBeneficio = Math.round((cRevenue - cCOGS - cMetaSpend) * 100) / 100
+      const pBeneficio = Math.round((pRevenue - pCOGS - pMetaSpend) * 100) / 100
 
       const cRefundN = current.filter(isRefunded).length
       const pRefundN = previous.filter(isRefunded).length
@@ -174,18 +197,20 @@ export function useShopifyOrders(days = 30) {
       setState({
         orders:   current.slice(0, 10),
         kpis: {
-          ventas:       { value: cRevenue,    change: calcChange(cRevenue,   pRevenue)   },
-          pedidos:      { value: cOrders,     change: calcChange(cOrders,    pOrders)    },
-          ticket:       { value: cTicket,     change: calcChange(cTicket,    pTicket)    },
-          beneficio:    { value: cBeneficio,  change: calcChange(cBeneficio, pBeneficio) },
-          cogs:         { value: cCOGS,       change: calcChange(cCOGS,      pCOGS)      },
-          devoluciones: { value: cDevPct,     change: calcChange(cDevPct,    pDevPct)    },
-          reembolsos:   { value: cReemb,      change: calcChange(cReemb,     pReemb)     },
-          margen:       { value: cMargen,     change: calcChange(cMargen,    pMargen)    },
+          ventas:       { value: cRevenue,    change: calcChange(cRevenue,    pRevenue)    },
+          pedidos:      { value: cOrders,     change: calcChange(cOrders,     pOrders)     },
+          ticket:       { value: cTicket,     change: calcChange(cTicket,     pTicket)     },
+          beneficio:    { value: cBeneficio,  change: calcChange(cBeneficio,  pBeneficio)  },
+          cogs:         { value: cCOGS,       change: calcChange(cCOGS,       pCOGS)       },
+          metaSpend:    { value: Math.round(cMetaSpend * 100) / 100, change: calcChange(cMetaSpend, pMetaSpend) },
+          devoluciones: { value: cDevPct,     change: calcChange(cDevPct,     pDevPct)     },
+          reembolsos:   { value: cReemb,      change: calcChange(cReemb,      pReemb)      },
+          margen:       { value: cMargen,     change: calcChange(cMargen,     pMargen)     },
         },
         chartData: buildChartData(
           [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at)),
-          days
+          days,
+          metaByDate
         ),
         loading: false,
         hasRealData: true,
@@ -227,7 +252,6 @@ export function useShopifyOrders(days = 30) {
     let channel
     let cancelled = false
 
-    // Refresh when the user returns to this tab
     function handleVisibility() {
       if (document.visibilityState === 'visible') fetchData()
     }

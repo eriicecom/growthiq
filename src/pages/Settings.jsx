@@ -1,28 +1,33 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ShoppingBag } from 'lucide-react'
+import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ShoppingBag, Facebook } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import ShopifySettings from './settings/ShopifySettings'
+import MetaSettings from './settings/MetaSettings'
 
-// Each integration has an id used to navigate to its detail panel
+const META_BLUE = '#1877F2'
+
 const integrations = [
   {
     id: 'shopify',
     icon: ShoppingBag,
+    iconColor: null,
     label: 'Shopify',
     desc: 'Sincroniza pedidos y ventas en tiempo real',
     badge: null,
   },
   {
-    id: null,
-    icon: SettingsIcon,
+    id: 'meta',
+    icon: Facebook,
+    iconColor: META_BLUE,
     label: 'Meta Ads',
     desc: 'Facebook e Instagram Ads',
-    badge: 'Próximamente',
+    badge: null,
   },
   {
     id: null,
     icon: SettingsIcon,
+    iconColor: null,
     label: 'TikTok Ads',
     desc: 'TikTok for Business',
     badge: 'Próximamente',
@@ -30,6 +35,7 @@ const integrations = [
   {
     id: null,
     icon: SettingsIcon,
+    iconColor: null,
     label: 'Google Ads',
     desc: 'Google Ads y Analytics',
     badge: 'Próximamente',
@@ -67,7 +73,7 @@ function Breadcrumb({ crumbs, onNavigate }) {
 }
 
 export default function Settings() {
-  const [view, setView] = useState('home') // 'home' | 'integrations' | 'shopify'
+  const [view, setView] = useState('home') // 'home' | 'integrations' | 'shopify' | 'meta'
   const routerNavigate = useNavigate()
 
   function navigate(v) { setView(v) }
@@ -93,6 +99,22 @@ export default function Settings() {
     )
   }
 
+  if (view === 'meta') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Breadcrumb
+          crumbs={[
+            { label: 'Ajustes', view: 'home' },
+            { label: 'Integraciones', view: 'integrations' },
+            { label: 'Meta Ads', view: 'meta' },
+          ]}
+          onNavigate={navigate}
+        />
+        <MetaSettings />
+      </div>
+    )
+  }
+
   if (view === 'integrations') {
     return (
       <div className="max-w-2xl mx-auto">
@@ -110,14 +132,19 @@ export default function Settings() {
         </div>
 
         <div className="space-y-3">
-          {integrations.map(({ id, icon: Icon, label, desc, badge }) => (
+          {integrations.map(({ id, icon: Icon, iconColor, label, desc, badge }) => (
             <button
               key={label}
               onClick={() => id && navigate(id)}
               disabled={!id}
               className="card w-full flex items-center gap-4 px-5 py-4 hover:border-white/10 hover:bg-surface-700 transition-all text-left group disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-white/70 transition-colors shrink-0">
+              <div
+                className={iconColor
+                  ? 'w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors'
+                  : 'w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center text-white/40 group-hover:text-white/70 transition-colors shrink-0'}
+                style={iconColor ? { background: `${iconColor}20`, color: iconColor } : undefined}
+              >
                 <Icon size={18} />
               </div>
               <div className="flex-1 min-w-0">
@@ -149,7 +176,6 @@ export default function Settings() {
         <p className="text-sm text-white/40 mt-1">Configura tu cuenta, integraciones y preferencias</p>
       </div>
 
-      {/* Integrations — clickable */}
       <button
         onClick={() => navigate('integrations')}
         className="card w-full flex items-center gap-4 px-5 py-4 hover:border-white/10 hover:bg-surface-700 transition-all text-left group"

@@ -23,6 +23,7 @@ const COLOR_MAP = {
   orange:  { icon: 'bg-orange-500/10  text-orange-400'  },
   red:     { icon: 'bg-red-500/10     text-red-400'     },
   teal:    { icon: 'bg-teal-500/10    text-teal-400'    },
+  blue:    { icon: 'bg-blue-500/10    text-blue-400'    },
 }
 
 export default function KPICard({
