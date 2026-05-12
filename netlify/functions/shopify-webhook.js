@@ -2,13 +2,15 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import ws from 'ws'
 
-const TOPICS = new Set(['orders/create', 'orders/updated', 'orders/paid'])
+// Topics that route to the order upsert path
+const ORDER_TOPICS = new Set(['orders/create', 'orders/updated', 'orders/paid'])
+// Topics handled by targeted column updates (not full upserts)
+const ALL_TOPICS   = new Set([...ORDER_TOPICS, 'fulfillments/create'])
 
 function verifyHmac(rawBody, hmacHeader, secret) {
   const hash = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
   const a = Buffer.from(hash)
   const b = Buffer.from(hmacHeader)
-  // timingSafeEqual requires identical lengths — if they differ the signature is wrong
   return a.length === b.length && crypto.timingSafeEqual(a, b)
 }
 
@@ -39,7 +41,7 @@ export const handler = async (event) => {
   }
 
   // ── HMAC verification ────────────────────────────────────────────────────
-  const secret    = process.env.SHOPIFY_WEBHOOK_SECRET
+  const secret     = process.env.SHOPIFY_WEBHOOK_SECRET
   const hmacHeader = event.headers['x-shopify-hmac-sha256']
 
   if (secret) {
@@ -54,23 +56,22 @@ export const handler = async (event) => {
   }
 
   // ── Topic filter ─────────────────────────────────────────────────────────
-  const topic     = event.headers['x-shopify-topic'] || ''
+  const topic      = event.headers['x-shopify-topic'] || ''
   const shopDomain = (event.headers['x-shopify-shop-domain'] || '').toLowerCase().replace(/\/$/, '')
 
-  if (!TOPICS.has(topic)) {
-    // Acknowledge unsupported topics immediately so Shopify stops retrying
+  if (!ALL_TOPICS.has(topic)) {
     return { statusCode: 200, body: JSON.stringify({ ignored: true }) }
   }
 
-  // ── Parse order payload ──────────────────────────────────────────────────
-  let order
+  // ── Parse payload ────────────────────────────────────────────────────────
+  let payload
   try {
-    order = JSON.parse(event.body)
+    payload = JSON.parse(event.body)
   } catch {
     return { statusCode: 400, body: 'Invalid JSON' }
   }
 
-  // ── Supabase setup ───────────────────────────────────────────────────────
+  // ── Supabase setup (service-role key — no user JWT available here) ────────
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -82,13 +83,11 @@ export const handler = async (event) => {
   const supabase = createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } })
 
   // ── Look up user_id by shop domain ───────────────────────────────────────
-  // Must use service-role key (bypasses RLS) since there is no user JWT here
   if (!shopDomain) {
     console.error('[webhook] x-shopify-shop-domain header missing')
     return { statusCode: 400, body: 'Missing shop domain header' }
   }
 
-  // maybeSingle() returns null (not an error) when no row matches
   const { data: conn } = await supabase
     .from('shopify_connections')
     .select('user_id')
@@ -98,15 +97,35 @@ export const handler = async (event) => {
 
   if (!conn?.user_id) {
     console.warn('[webhook] shop not found:', shopDomain)
-    // Return 200 so Shopify stops retrying — the shop simply isn't registered
     return { statusCode: 200, body: JSON.stringify({ ignored: true, reason: 'shop not found' }) }
   }
 
-  // ── Upsert order (INSERT on new, UPDATE on existing) ─────────────────────
-  // onConflict: 'user_id,shopify_id' matches the UNIQUE constraint from migration 002.
-  // All status fields (financial_status, fulfillment_status, amount) are overwritten,
-  // so orders/updated events keep the DB in sync with Shopify in real time.
-  const mapped = mapOrder(order, conn.user_id)
+  // ── fulfillments/create — targeted UPDATE only ────────────────────────────
+  // Payload: { id, order_id, status, line_items, ... }
+  // We update fulfillment_status to 'fulfilled' on the parent order.
+  if (topic === 'fulfillments/create') {
+    const orderId = String(payload.order_id)
+
+    const { error: updateErr } = await supabase
+      .from('shopify_orders')
+      .update({
+        fulfillment_status: 'fulfilled',
+        updated_at:         new Date().toISOString(),
+      })
+      .eq('user_id', conn.user_id)
+      .eq('shopify_id', orderId)
+
+    if (updateErr) {
+      console.error('[webhook] fulfillment update error:', updateErr.message)
+      return { statusCode: 500, body: 'Error updating fulfillment status' }
+    }
+
+    console.log(`[webhook] fulfillments/create | order: ${orderId} | fulfillment_status → fulfilled | user: ${conn.user_id}`)
+    return { statusCode: 200, body: JSON.stringify({ received: true }) }
+  }
+
+  // ── orders/* — full upsert ────────────────────────────────────────────────
+  const mapped = mapOrder(payload, conn.user_id)
   const { error: upsertErr } = await supabase
     .from('shopify_orders')
     .upsert(mapped, { onConflict: 'user_id,shopify_id', ignoreDuplicates: false })
@@ -116,6 +135,6 @@ export const handler = async (event) => {
     return { statusCode: 500, body: 'Error saving order' }
   }
 
-  console.log(`[webhook] ${topic} | order: ${order.id} | status: ${mapped.financial_status}/${mapped.fulfillment_status} | user: ${conn.user_id}`)
+  console.log(`[webhook] ${topic} | order: ${payload.id} | status: ${mapped.financial_status}/${mapped.fulfillment_status} | user: ${conn.user_id}`)
   return { statusCode: 200, body: JSON.stringify({ received: true }) }
 }

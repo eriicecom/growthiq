@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import ws from 'ws'
 
 const API      = '2025-07'
-const TOPICS   = ['orders/create', 'orders/updated', 'orders/paid']
+const TOPICS   = ['orders/create', 'orders/updated', 'orders/paid', 'fulfillments/create']
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
