@@ -23,7 +23,7 @@ const KPI_CARDS = [
   {
     title: 'Costes de Producto',
     key: 'cogs', icon: Package, color: 'rose', isMoney: true,
-    note: 'Estimado · Configura tus costes reales en Ajustes',
+    note: 'Estimado · Configura costes reales en Productos',
   },
   { title: '% Devoluciones',          key: 'devoluciones', icon: RotateCcw,  color: 'orange',  isPercent: true, inverseColors: true },
   { title: 'Reembolsos',              key: 'reembolsos',   icon: CreditCard, color: 'red',     isMoney: true,   inverseColors: true },

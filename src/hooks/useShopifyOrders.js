@@ -30,6 +30,47 @@ function calcChange(current, previous) {
   return Math.round(((current - previous) / previous) * 100 * 10) / 10
 }
 
+// Build { productId: { qty: cost, ... } } lookup from product_costs rows
+function buildCostsMap(rows) {
+  const map = {}
+  for (const row of rows || []) {
+    if (!map[row.shopify_product_id]) map[row.shopify_product_id] = {}
+    map[row.shopify_product_id][row.quantity] = parseFloat(row.cost) || 0
+  }
+  return map
+}
+
+// COGS for a single order's line_items.
+// Falls back to 30% of item price if no cost configured for the product.
+function calcLineItemsCOGS(lineItems, costsMap, fallbackAmount) {
+  if (!lineItems?.length) return fallbackAmount * 0.30
+
+  let total = 0
+  for (const item of lineItems) {
+    const pid = item.product_id
+    const qty = item.quantity || 1
+    const itemTotal = (parseFloat(item.price) || 0) * qty
+
+    if (pid && costsMap[pid]) {
+      const tiers = costsMap[pid]
+      if (tiers[qty] !== undefined) {
+        // Exact tier match
+        total += tiers[qty]
+      } else if (tiers[1] !== undefined) {
+        // Fallback: cost for 1 unit × quantity
+        total += tiers[1] * qty
+      } else {
+        // No usable tier → 30% estimate
+        total += itemTotal * 0.30
+      }
+    } else {
+      // Product not configured → 30% estimate
+      total += itemTotal * 0.30
+    }
+  }
+  return total
+}
+
 const ZERO_KPIS = {
   ventas:       { value: 0, change: 0 },
   pedidos:      { value: 0, change: 0 },
@@ -49,7 +90,6 @@ const EMPTY_STATE = {
   hasRealData: false,
 }
 
-// days: number of days for the current window (also used for the comparison window)
 export function useShopifyOrders(days = 30) {
   const [state, setState] = useState({ ...EMPTY_STATE, loading: isSupabaseConfigured })
   const [syncing, setSyncing] = useState(false)
@@ -59,11 +99,14 @@ export function useShopifyOrders(days = 30) {
     if (!isSupabaseConfigured) return
 
     try {
-      // Fetch 2× the window so we have the comparison period too
       const windowStart  = new Date(); windowStart.setDate(windowStart.getDate() - days)
       const compareStart = new Date(); compareStart.setDate(compareStart.getDate() - (days * 2))
 
-      const [{ data: allOrders, error }, { data: connRow }] = await Promise.all([
+      const [
+        { data: allOrders, error: ordersError },
+        { data: connRow },
+        { data: costsRows },
+      ] = await Promise.all([
         supabase
           .from('shopify_orders')
           .select('shopify_id, amount, shopify_created_at, financial_status, fulfillment_status, order_number, customer_name, customer_email, currency, line_items, source_name')
@@ -75,9 +118,15 @@ export function useShopifyOrders(days = 30) {
           .eq('is_active', true)
           .limit(1)
           .maybeSingle(),
+        // product_costs may not exist yet (before migration) — error is ignored
+        supabase
+          .from('product_costs')
+          .select('shopify_product_id, quantity, cost'),
       ])
 
-      if (error) throw error
+      if (ordersError) throw ordersError
+
+      const costsMap = buildCostsMap(costsRows)
 
       if (!allOrders?.length) {
         setState(!!connRow
@@ -95,25 +144,32 @@ export function useShopifyOrders(days = 30) {
       const sumNet     = (arr) => arr.reduce((s, o) => isRefunded(o) ? s : s + (parseFloat(o.amount) || 0), 0)
       const sumRefunds = (arr) => arr.filter(isRefunded).reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
 
-      const cRevenue   = sumNet(current);       const pRevenue  = sumNet(previous)
-      const cOrders    = current.length;        const pOrders   = previous.length
-      const cTicket    = cOrders ? Math.round((cRevenue / cOrders) * 100) / 100 : 0
-      const pTicket    = pOrders ? pRevenue / pOrders : 0
+      const cRevenue = sumNet(current);   const pRevenue = sumNet(previous)
+      const cOrders  = current.length;   const pOrders  = previous.length
+      const cTicket  = cOrders ? Math.round((cRevenue / cOrders) * 100) / 100 : 0
+      const pTicket  = pOrders ? pRevenue / pOrders : 0
 
-      const cCOGS      = Math.round(cRevenue * 0.30 * 100) / 100
-      const pCOGS      = Math.round(pRevenue * 0.30 * 100) / 100
-      const cBeneficio = Math.round(cRevenue * 0.25 * 100) / 100
-      const pBeneficio = Math.round(pRevenue * 0.25 * 100) / 100
+      // Real COGS from product_costs; falls back to 30% per item when unconfigured
+      const sumCOGS = (arr) =>
+        arr
+          .filter((o) => !isRefunded(o))
+          .reduce((s, o) => s + calcLineItemsCOGS(o.line_items, costsMap, parseFloat(o.amount) || 0), 0)
 
-      const cRefundN   = current.filter(isRefunded).length
-      const pRefundN   = previous.filter(isRefunded).length
-      const cDevPct    = cOrders ? Math.round((cRefundN / cOrders) * 1000) / 10 : 0
-      const pDevPct    = pOrders ? Math.round((pRefundN / pOrders) * 1000) / 10 : 0
+      const cCOGS = Math.round(sumCOGS(current) * 100) / 100
+      const pCOGS = Math.round(sumCOGS(previous) * 100) / 100
 
-      const cReemb     = sumRefunds(current);   const pReemb = sumRefunds(previous)
+      const cBeneficio = Math.round((cRevenue - cCOGS) * 100) / 100
+      const pBeneficio = Math.round((pRevenue - pCOGS) * 100) / 100
 
-      const cMargen    = cRevenue ? Math.round((cBeneficio / cRevenue) * 1000) / 10 : 0
-      const pMargen    = pRevenue ? Math.round((pBeneficio / pRevenue) * 1000) / 10 : 0
+      const cRefundN = current.filter(isRefunded).length
+      const pRefundN = previous.filter(isRefunded).length
+      const cDevPct  = cOrders ? Math.round((cRefundN / cOrders) * 1000) / 10 : 0
+      const pDevPct  = pOrders ? Math.round((pRefundN / pOrders) * 1000) / 10 : 0
+
+      const cReemb = sumRefunds(current); const pReemb = sumRefunds(previous)
+
+      const cMargen = cRevenue ? Math.round((cBeneficio / cRevenue) * 1000) / 10 : 0
+      const pMargen = pRevenue ? Math.round((pBeneficio / pRevenue) * 1000) / 10 : 0
 
       setState({
         orders:   current.slice(0, 10),
@@ -138,7 +194,7 @@ export function useShopifyOrders(days = 30) {
       console.error('[useShopifyOrders]', err)
       setState({ ...EMPTY_STATE })
     }
-  }, [days]) // re-create when period changes
+  }, [days])
 
   const sync = useCallback(async () => {
     setSyncing(true)
@@ -190,7 +246,7 @@ export function useShopifyOrders(days = 30) {
       cancelled = true
       if (channel) supabase.removeChannel(channel)
     }
-  }, [fetchData]) // fetchData changes when `days` changes → effect re-runs
+  }, [fetchData])
 
   return { ...state, syncing, syncError, sync }
 }

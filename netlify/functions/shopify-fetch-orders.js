@@ -17,7 +17,7 @@ function mapOrder(order, userId) {
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',
     fulfillment_status: order.fulfillment_status || 'unfulfilled',
-    line_items:         (order.line_items || []).map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+    line_items:         (order.line_items || []).map((i) => ({ name: i.name, quantity: i.quantity, price: i.price, product_id: i.product_id ? String(i.product_id) : null, variant_id: i.variant_id ? String(i.variant_id) : null })),
     source_name:        order.source_name || 'web',
     shopify_created_at: order.created_at,
     updated_at:         new Date().toISOString(),

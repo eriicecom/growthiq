@@ -20,9 +20,9 @@ const navGroups = [
     label: 'Principal',
     items: [
       { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/products',  icon: Package,         label: 'Productos' },
       { to: '/sales',     icon: TrendingUp,      label: 'Ventas' },
       { to: '/orders',    icon: ShoppingCart,    label: 'Pedidos' },
-      { to: '/products',  icon: Package,         label: 'Productos' },
       { to: '/customers', icon: Users,           label: 'Clientes' },
     ],
   },
