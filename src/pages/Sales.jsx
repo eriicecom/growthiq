@@ -13,6 +13,8 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { usePeriod, PERIODS } from '@/contexts/PeriodContext'
 import { buildPeriodWindows } from '@/lib/periodUtils'
 import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
+import { fmtDatetime, fmtDate as fmtDateUtil } from '@/lib/dateUtils'
 import Badge from '@/components/ui/Badge'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -203,10 +205,10 @@ function processOrders(allOrders, period) {
   }
 }
 
-function exportToCSV(orders) {
+function exportToCSV(orders, timezone) {
   const hdrs = ['Fecha','N° Pedido','Cliente','Email','Importe','Moneda','Estado','Canal']
   const rows = orders.map(o => [
-    new Date(o.shopify_created_at).toLocaleDateString('es-ES'),
+    fmtDateUtil(o.shopify_created_at, timezone),
     o.order_number || '',
     o.customer_name || '',
     o.customer_email || '',
@@ -446,6 +448,7 @@ function OrderFunnel({ funnel, loading }) {
 
 // ── Detailed sales table ──────────────────────────────────────────────────────
 function SalesTable({ orders, symbol, convert, loading }) {
+  const { timezone }          = useStoreSettings()
   const [filter, setFilter]   = useState('Todos')
   const [page, setPage]       = useState(0)
 
@@ -480,7 +483,7 @@ function SalesTable({ orders, symbol, convert, loading }) {
             <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
           </div>
           <button
-            onClick={() => exportToCSV(filtered)}
+            onClick={() => exportToCSV(filtered, timezone)}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-colors"
           >
             <Download size={13} /> CSV
@@ -514,9 +517,7 @@ function SalesTable({ orders, symbol, convert, loading }) {
                   const product = items.length
                     ? (items.length > 1 ? `${items[0]?.name} +${items.length - 1}` : items[0]?.name) || '—'
                     : '—'
-                  const date = o.shopify_created_at
-                    ? new Date(o.shopify_created_at).toLocaleString('es-ES', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
-                    : '—'
+                  const date = fmtDatetime(o.shopify_created_at, timezone)
                   return (
                     <tr key={o.shopify_id} className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
                       <td className="px-5 py-3.5 text-xs text-white/40 whitespace-nowrap">{date}</td>

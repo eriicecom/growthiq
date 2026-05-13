@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import Badge from '@/components/ui/Badge'
 import { ArrowUpRight, Loader2 } from 'lucide-react'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
+import { fmtDatetime } from '@/lib/dateUtils'
 
 // Maps Shopify financial/fulfillment status to display values
 function resolveStatus(order) {
@@ -33,12 +35,9 @@ function resolveProduct(order) {
   return items.length > 1 ? `${first} +${items.length - 1} más` : first
 }
 
-function resolveDate(order) {
+function resolveDate(order, timezone) {
   if (order.date) return order.date // mock data
-  if (!order.shopify_created_at) return '—'
-  return new Date(order.shopify_created_at).toLocaleString('es-ES', {
-    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-  })
+  return fmtDatetime(order.shopify_created_at, timezone)
 }
 
 function resolveAmount(order) {
@@ -61,6 +60,7 @@ const channelConfig = {
 }
 
 export default function OrdersTable({ orders = [], loading = false, hasRealData = false }) {
+  const { timezone } = useStoreSettings()
   return (
     <div className="card">
       <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
@@ -96,7 +96,7 @@ export default function OrdersTable({ orders = [], loading = false, hasRealData 
                 const status = resolveStatus(order)
                 const channel = resolveChannel(order)
                 const product = resolveProduct(order)
-                const date = resolveDate(order)
+                const date = resolveDate(order, timezone)
                 const amount = resolveAmount(order)
                 const id = order.id || order.order_number || order.shopify_id
 

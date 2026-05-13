@@ -12,6 +12,8 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { usePeriod, PERIODS } from '@/contexts/PeriodContext'
 import { buildPeriodWindows } from '@/lib/periodUtils'
 import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
+import { fmtDate as fmtDateUtil } from '@/lib/dateUtils'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MONTHS_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -48,11 +50,8 @@ function fmtMoney(v, symbol, convert) {
   return `${symbol}${cv.toFixed(2)}`
 }
 
-function fmtDate(ts) {
-  if (!ts) return '—'
-  const d = new Date(ts)
-  return `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`
-}
+// fmtDate is imported from dateUtils; define a local alias used with explicit timezone
+function fmtDate(ts, timezone) { return fmtDateUtil(ts, timezone) }
 
 // ── Data processing ───────────────────────────────────────────────────────────
 function processCustomers(allOrders, period) {
@@ -195,7 +194,7 @@ function processCustomers(allOrders, period) {
   }
 }
 
-function exportCSV(customers, symbol, convert) {
+function exportCSV(customers, symbol, convert, timezone) {
   const hdrs = ['Nombre','Email','Pedidos','Total Gastado','Ticket Medio','Primera Compra','Última Compra','Tipo']
   const rows = customers.map(c => [
     c.name,
@@ -203,8 +202,8 @@ function exportCSV(customers, symbol, convert) {
     c.totalOrders,
     convert(c.totalSpend).toFixed(2),
     convert(c.ticketAvg).toFixed(2),
-    fmtDate(c.firstOrder),
-    fmtDate(c.lastOrder),
+    fmtDate(c.firstOrder, timezone),
+    fmtDate(c.lastOrder, timezone),
     c.isRecurring ? 'Recurrente' : 'Nuevo',
   ])
   const csv = [hdrs, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
@@ -302,6 +301,7 @@ function RecurringBadge({ isRecurring }) {
 }
 
 function TopCustomers({ customers, symbol, convert, loading }) {
+  const { timezone } = useStoreSettings()
   const [showAll, setShowAll] = useState(false)
   const visible = showAll ? customers : customers.slice(0, 10)
 
@@ -355,6 +355,7 @@ function TopCustomers({ customers, symbol, convert, loading }) {
 }
 
 function CustomerTable({ customers, symbol, convert, loading }) {
+  const { timezone }          = useStoreSettings()
   const [search, setSearch]   = useState('')
   const [typeFilter, setType] = useState('Todos')
   const [page, setPage]       = useState(0)
@@ -408,7 +409,7 @@ function CustomerTable({ customers, symbol, convert, loading }) {
           </div>
           {/* Export */}
           <button
-            onClick={() => exportCSV(filtered, symbol, convert)}
+            onClick={() => exportCSV(filtered, symbol, convert, timezone)}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-colors"
           >
             <Download size={13} /> CSV
@@ -447,8 +448,8 @@ function CustomerTable({ customers, symbol, convert, loading }) {
                     <td className="px-5 py-3.5 text-xs text-white/60 text-center">{c.totalOrders}</td>
                     <td className="px-5 py-3.5 text-xs font-semibold text-white whitespace-nowrap">{fmtMoney(c.totalSpend, symbol, convert)}</td>
                     <td className="px-5 py-3.5 text-xs text-white/50 whitespace-nowrap">{fmtMoney(c.ticketAvg, symbol, convert)}</td>
-                    <td className="px-5 py-3.5 text-xs text-white/40 whitespace-nowrap">{fmtDate(c.firstOrder)}</td>
-                    <td className="px-5 py-3.5 text-xs text-white/40 whitespace-nowrap">{fmtDate(c.lastOrder)}</td>
+                    <td className="px-5 py-3.5 text-xs text-white/40 whitespace-nowrap">{fmtDate(c.firstOrder, timezone)}</td>
+                    <td className="px-5 py-3.5 text-xs text-white/40 whitespace-nowrap">{fmtDate(c.lastOrder, timezone)}</td>
                   </tr>
                 ))}
               </tbody>

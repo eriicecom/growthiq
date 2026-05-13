@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { AuthProvider, useSession } from '@/contexts/AuthContext'
 import { PeriodProvider } from '@/contexts/PeriodContext'
 import { PlatformProvider } from '@/contexts/PlatformContext'
+import { StoreSettingsProvider } from '@/contexts/StoreSettingsContext'
 import Layout from '@/components/layout/Layout'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
@@ -43,6 +44,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <StoreSettingsProvider>
         <PlatformProvider>
         <PeriodProvider>
           <Routes>
@@ -68,6 +70,7 @@ export default function App() {
                 <Route path="settings/integrations/shopify" element={<Settings />} />
                 <Route path="settings/integrations/meta"      element={<Settings />} />
                 <Route path="settings/integrations/wordpress" element={<Settings />} />
+                <Route path="settings/store"                  element={<Settings />} />
               </Route>
             </Route>
 
@@ -75,6 +78,7 @@ export default function App() {
           </Routes>
         </PeriodProvider>
         </PlatformProvider>
+        </StoreSettingsProvider>
       </AuthProvider>
     </BrowserRouter>
   )
