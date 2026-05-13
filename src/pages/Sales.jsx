@@ -605,7 +605,7 @@ export default function Sales() {
 
     supabase
       .from('shopify_orders')
-      .select('shopify_id, order_number, amount, currency, shopify_created_at, financial_status, fulfillment_status, customer_name, customer_email, line_items, source_name')
+      .select('shopify_id, order_number, amount, currency, shopify_created_at, financial_status, fulfillment_status, customer_name, customer_email, customer_phone, line_items, source_name')
       .gte('shopify_created_at', compareStart.toISOString())
       .order('shopify_created_at', { ascending: false })
       .then(({ data: orders }) => {

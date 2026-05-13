@@ -6,13 +6,17 @@ const API = '2025-07'
 function mapOrder(order, userId) {
   const firstName = order.customer?.first_name || ''
   const lastName  = order.customer?.last_name  || ''
-  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente desconocido'
+  let customerName = [firstName, lastName].filter(Boolean).join(' ')
+  if (!customerName) {
+    customerName = order.billing_address?.name || order.shipping_address?.name || ''
+  }
 
   return {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
-    customer_name:      customerName,
-    customer_email:     order.customer?.email || '',
+    customer_name:      customerName || 'Cliente desconocido',
+    customer_email:     order.customer?.email || order.email || '',
+    customer_phone:     order.customer?.phone || order.billing_address?.phone || order.shipping_address?.phone || '',
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',

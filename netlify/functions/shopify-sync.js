@@ -11,24 +11,30 @@ function shopifyError(status) {
 }
 
 function mapOrder(order, userId) {
+  // Registered customer name
   const firstName = order.customer?.first_name || ''
   const lastName  = order.customer?.last_name  || ''
-  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Cliente desconocido'
+  let customerName = [firstName, lastName].filter(Boolean).join(' ')
+  // Guest checkout fallback: billing or shipping address name
+  if (!customerName) {
+    customerName = order.billing_address?.name || order.shipping_address?.name || ''
+  }
 
   return {
-    shopify_id:        String(order.id),
-    order_number:      `#${order.order_number}`,
-    customer_name:     customerName,
-    customer_email:    order.customer?.email || '',
-    amount:            parseFloat(order.total_price) || 0,
-    currency:          order.currency || 'EUR',
-    financial_status:  order.financial_status  || 'pending',
+    shopify_id:         String(order.id),
+    order_number:       `#${order.order_number}`,
+    customer_name:      customerName || 'Cliente desconocido',
+    customer_email:     order.customer?.email || order.email || '',
+    customer_phone:     order.customer?.phone || order.billing_address?.phone || order.shipping_address?.phone || '',
+    amount:             parseFloat(order.total_price) || 0,
+    currency:           order.currency || 'EUR',
+    financial_status:   order.financial_status  || 'pending',
     fulfillment_status: order.fulfillment_status || 'unfulfilled',
-    line_items:        (order.line_items || []).map((i) => ({ name: i.name, quantity: i.quantity, price: i.price, product_id: i.product_id ? String(i.product_id) : null, variant_id: i.variant_id ? String(i.variant_id) : null })),
-    source_name:       order.source_name || 'web',
+    line_items:         (order.line_items || []).map((i) => ({ name: i.name, quantity: i.quantity, price: i.price, product_id: i.product_id ? String(i.product_id) : null, variant_id: i.variant_id ? String(i.variant_id) : null })),
+    source_name:        order.source_name || 'web',
     shopify_created_at: order.created_at,
-    updated_at:        new Date().toISOString(),
-    user_id:           userId,
+    updated_at:         new Date().toISOString(),
+    user_id:            userId,
   }
 }
 
