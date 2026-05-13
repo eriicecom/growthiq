@@ -1,7 +1,6 @@
 import {
   ResponsiveContainer,
   AreaChart, Area,
-  BarChart, Bar,
   XAxis, YAxis,
   CartesianGrid, Tooltip,
 } from 'recharts'
@@ -31,6 +30,9 @@ export default function SalesChart({ data, days = 30, periodLabel, symbol = '€
 
   const subtitle = periodLabel
     ?? (days === 'today' ? 'Hoy' : days === 'yesterday' ? 'Ayer' : `Últimos ${days} días`)
+
+  const isHourly = chartData.length === 24 && String(chartData[0]?.date).endsWith('h')
+  const xInterval = isHourly ? 5 : 4
 
   const maxConverted = convert(
     chartData.reduce((m, d) => Math.max(m, d.ventas ?? 0, d.beneficio ?? 0), 0)
@@ -64,34 +66,7 @@ export default function SalesChart({ data, days = 30, periodLabel, symbol = '€
     </div>
   )
 
-  // ── Single-day: grouped BarChart ────────────────────────────────────────────
-  if (chartData.length <= 1) {
-    return (
-      <div className="card p-5">
-        {header}
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart
-            data={chartData.length ? chartData : [{ date: subtitle, ventas: 0, beneficio: 0 }]}
-            barGap={6}
-            barCategoryGap="50%"
-            margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={tickFormatter} width={52} />
-            <Tooltip
-              content={<CustomTooltip symbol={symbol} convert={convert} />}
-              cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-            />
-            <Bar dataKey="ventas"    name="Ventas"    fill="#4f6ef7" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="beneficio" name="Beneficio" fill="#10b981" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    )
-  }
-
-  // ── Multi-day: area chart ───────────────────────────────────────────────────
+  // ── Area chart (hourly or multi-day) ───────────────────────────────────────
   return (
     <div className="card p-5">
       {header}
@@ -113,7 +88,7 @@ export default function SalesChart({ data, days = 30, periodLabel, symbol = '€
             tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }}
             axisLine={false}
             tickLine={false}
-            interval={4}
+            interval={xInterval}
           />
           <YAxis
             tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }}

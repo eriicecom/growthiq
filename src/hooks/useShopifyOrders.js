@@ -32,6 +32,29 @@ function buildChartData(orders, numDays, adSpendByDate = {}, endDate = new Date(
   return days.map(({ key, ...rest }) => rest)
 }
 
+function buildHourlyChartData(orders, windowStart, adSpendByDate = {}) {
+  const hours = Array.from({ length: 24 }, (_, h) => ({
+    hour: h,
+    date: `${String(h).padStart(2, '0')}h`,
+    ventas: 0, beneficio: 0, pedidos: 0,
+  }))
+  const dayStart = new Date(windowStart); dayStart.setHours(0, 0, 0, 0)
+  const dayEnd   = new Date(dayStart);    dayEnd.setDate(dayStart.getDate() + 1)
+  const dayKey   = dayStart.toISOString().slice(0, 10)
+  for (const order of orders) {
+    const ts = new Date(order.shopify_created_at)
+    if (ts < dayStart || ts >= dayEnd) continue
+    const h = ts.getHours()
+    const amount = parseFloat(order.amount) || 0
+    hours[h].ventas    += amount
+    hours[h].pedidos   += 1
+    hours[h].beneficio += Math.round(amount * 0.25)
+  }
+  const perHour = (adSpendByDate[dayKey] || 0) / 24
+  for (const slot of hours) { slot.beneficio -= perHour }
+  return hours.map(({ hour, ...rest }) => rest)
+}
+
 function calcChange(current, previous) {
   if (previous === 0) return 0
   return Math.round(((current - previous) / previous) * 100 * 10) / 10
@@ -194,7 +217,9 @@ export function useShopifyOrders(period = '30') {
         setState(!!connRow
           ? {
               orders: [], kpis: ZERO_KPIS,
-              chartData: buildChartData([], numDays, adSpendByDate, chartEndDate),
+              chartData: isSingleDay
+                ? buildHourlyChartData([], windowStart, adSpendByDate)
+                : buildChartData([], numDays, adSpendByDate, chartEndDate),
               loading: false, hasRealData: true,
               metaConnected, tiktokConnected,
             }
@@ -249,12 +274,18 @@ export function useShopifyOrders(period = '30') {
           reembolsos:   { value: cReemb,     change: calcChange(cReemb,      pReemb)      },
           margen:       { value: cMargen,    change: calcChange(cMargen,     pMargen)     },
         },
-        chartData: buildChartData(
-          [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at)),
-          numDays,
-          adSpendByDate,
-          chartEndDate
-        ),
+        chartData: isSingleDay
+          ? buildHourlyChartData(
+              [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at)),
+              windowStart,
+              adSpendByDate
+            )
+          : buildChartData(
+              [...current].sort((a, b) => a.shopify_created_at.localeCompare(b.shopify_created_at)),
+              numDays,
+              adSpendByDate,
+              chartEndDate
+            ),
         loading: false,
         hasRealData: true,
         metaConnected,
