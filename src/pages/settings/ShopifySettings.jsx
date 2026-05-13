@@ -112,12 +112,14 @@ export default function ShopifySettings() {
     // Step 2: Save credentials to Supabase (include user_id for multi-tenant RLS)
     setStep('saving')
     const { data: { user } } = await supabase.auth.getUser()
-    const { error: dbErr } = await supabase.from('shopify_connections').upsert(
+    const { data: upsertData, error: dbErr } = await supabase.from('shopify_connections').upsert(
       { shop_domain: domain, access_token: accessToken, is_active: false, user_id: user?.id, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' }
     )
+    console.log('[shopify-connect] upsert result:', { data: upsertData, error: dbErr, userId: user?.id, domain })
     if (dbErr) {
-      setError('Error al guardar la configuración. Verifica que Supabase esté configurado.')
+      console.error('[shopify-connect] upsert error details:', JSON.stringify(dbErr, null, 2))
+      setError(`Error al guardar la configuración: ${dbErr.message || dbErr.code || 'error desconocido'}`)
       setStep('error')
       return
     }
