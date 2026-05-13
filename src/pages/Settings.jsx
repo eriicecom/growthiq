@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette,
@@ -12,20 +12,11 @@ import MetaSettings from './settings/MetaSettings'
 
 const META_BLUE = '#1877F2'
 
-const TIMEZONES = [
-  { value: 'Europe/Madrid',                  label: 'Madrid (CET/CEST)'      },
-  { value: 'Europe/London',                  label: 'Londres (GMT/BST)'      },
-  { value: 'America/New_York',               label: 'Nueva York (ET)'        },
-  { value: 'America/Chicago',                label: 'Chicago (CT)'           },
-  { value: 'America/Denver',                 label: 'Denver (MT)'            },
-  { value: 'America/Los_Angeles',            label: 'Los Ángeles (PT)'       },
-  { value: 'America/Mexico_City',            label: 'Ciudad de México (CT)'  },
-  { value: 'America/Bogota',                 label: 'Bogotá (COT)'           },
-  { value: 'America/Lima',                   label: 'Lima (PET)'             },
-  { value: 'America/Santiago',               label: 'Santiago (CLT)'         },
-  { value: 'America/Sao_Paulo',              label: 'São Paulo (BRT)'        },
-  { value: 'America/Argentina/Buenos_Aires', label: 'Buenos Aires (ART)'     },
-]
+// All IANA timezones available in the browser
+const ALL_TIMEZONES = (() => {
+  try { return Intl.supportedValuesOf('timeZone') }
+  catch { return ['Europe/Madrid','Europe/London','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Mexico_City','America/Bogota','America/Lima','America/Santiago','America/Sao_Paulo','America/Argentina/Buenos_Aires'] }
+})()
 
 const integrations = [
   { id: 'shopify', icon: ShoppingBag, iconColor: null,     label: 'Shopify',   desc: 'Sincroniza pedidos y ventas en tiempo real', badge: null },
@@ -71,10 +62,20 @@ function StoreSettingsView({ onNavigate }) {
   const [storeName, setStoreName]   = useState('')
   const [currency,  setCurrency]    = useState('USD')
   const [timezone,  setTimezone]    = useState('Europe/Madrid')
+  const [tzSearch,  setTzSearch]    = useState('')
   const [loading,   setLoading]     = useState(true)
   const [saving,    setSaving]      = useState(false)
   const [saved,     setSaved]       = useState(false)
   const [saveError, setSaveError]   = useState('')
+
+  const filteredTz = useMemo(() => {
+    const q = tzSearch.trim().toLowerCase()
+    if (!q) return ALL_TIMEZONES
+    const matches = ALL_TIMEZONES.filter(tz => tz.toLowerCase().includes(q))
+    // Always keep the currently selected timezone in the list
+    if (timezone && !matches.includes(timezone)) return [timezone, ...matches]
+    return matches
+  }, [tzSearch, timezone])
 
   useEffect(() => {
     async function load() {
@@ -175,14 +176,26 @@ function StoreSettingsView({ onNavigate }) {
           {/* Timezone */}
           <div>
             <FieldLabel>Zona horaria</FieldLabel>
+            <input
+              type="text"
+              value={tzSearch}
+              onChange={e => setTzSearch(e.target.value)}
+              placeholder="Filtrar por nombre…"
+              className="w-full bg-surface-700 border border-white/8 rounded-t-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-brand-500/40 transition-colors border-b-0"
+            />
             <div className="relative">
-              <select value={timezone} onChange={e => setTimezone(e.target.value)} className={selectCls}>
-                {TIMEZONES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+              <select
+                value={timezone}
+                onChange={e => { setTimezone(e.target.value); setTzSearch('') }}
+                size={5}
+                className="w-full bg-surface-700 border border-white/8 rounded-b-lg px-3 py-1 text-sm text-white focus:outline-none focus:border-brand-500/40 transition-colors"
+              >
+                {filteredTz.map(tz => (
+                  <option key={tz} value={tz}>{tz}</option>
                 ))}
               </select>
-              <ChevronRight size={13} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 text-white/30 pointer-events-none" />
             </div>
+            <p className="text-[11px] text-white/25 mt-1.5">Seleccionada: {timezone}</p>
           </div>
 
           {saveError && (

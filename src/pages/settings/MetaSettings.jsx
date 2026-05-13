@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { CheckCircle2, XCircle, Loader2, RefreshCw, Unplug, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
 
 const META_BLUE = '#1877F2'
 
@@ -58,6 +59,7 @@ function StatusBadge({ active }) {
 }
 
 export default function MetaSettings() {
+  const { timezone } = useStoreSettings()
   const [connection, setConnection]     = useState(null)
   const [loadingConn, setLoadingConn]   = useState(true)
   const [accessToken, setAccessToken]   = useState('')
@@ -206,7 +208,7 @@ export default function MetaSettings() {
             <p className="text-xs text-white/30">
               Última sincronización:{' '}
               {new Date(connection.last_synced_at).toLocaleString('es-ES', {
-                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone,
               })}
             </p>
           )}

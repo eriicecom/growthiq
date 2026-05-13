@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp, RefreshCw, Unplug, ExternalLink } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
 
 const STEPS = [
   { n: 1, title: 'Accede a tu panel de Shopify', body: 'Ve a tu Admin de Shopify → Configuración (icono de engranaje en la barra lateral).' },
@@ -37,6 +38,7 @@ function ProgressBar({ value, label }) {
 }
 
 export default function ShopifySettings() {
+  const { timezone } = useStoreSettings()
   const [connection, setConnection] = useState(null)
   const [loadingConn, setLoadingConn] = useState(true)
 
@@ -264,7 +266,7 @@ export default function ShopifySettings() {
             <p className="text-xs text-white/30">
               Última sincronización:{' '}
               {new Date(connection.last_synced_at).toLocaleString('es-ES', {
-                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone,
               })}
             </p>
           )}

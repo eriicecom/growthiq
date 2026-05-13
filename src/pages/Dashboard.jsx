@@ -8,8 +8,9 @@ import KPICard from '@/components/dashboard/KPICard'
 import SalesChart from '@/components/dashboard/SalesChart'
 import OrdersTable from '@/components/dashboard/OrdersTable'
 import { useShopifyOrders } from '@/hooks/useShopifyOrders'
-import { useCurrency, CURRENCIES } from '@/hooks/useCurrency'
+import { CURRENCIES } from '@/hooks/useCurrency'
 import { usePeriod, periodLabel as getPeriodLabel } from '@/contexts/PeriodContext'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
 import { isSupabaseConfigured } from '@/lib/supabase'
 
 function TikTokIcon({ size = 18 }) {
@@ -94,7 +95,10 @@ export default function Dashboard() {
     sync, syncing, syncError,
     metaConnected, tiktokConnected,
   } = useShopifyOrders(days)
-  const { currency, setCurrency, symbol, convert } = useCurrency()
+  const { currency, setCurrency, timezone } = useStoreSettings()
+  const cur     = CURRENCIES.find(c => c.code === currency) ?? CURRENCIES[0]
+  const symbol  = cur.symbol
+  const convert = (v) => Math.round(v * cur.rate * 100) / 100
 
   // ── Supabase not configured ──────────────────────────────────────────────
   if (!isSupabaseConfigured) {

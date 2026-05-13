@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { RefreshCw, Loader2, Settings, AlertCircle, TrendingUp } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { useCurrency } from '@/hooks/useCurrency'
+import { useStoreSettings } from '@/contexts/StoreSettingsContext'
 
 const META_BLUE = '#1877F2'
 
@@ -39,6 +40,7 @@ function SummaryCard({ label, value, symbol }) {
 
 export default function MetaAds() {
   const { symbol, convert } = useCurrency()
+  const { timezone } = useStoreSettings()
   const [phase, setPhase]           = useState('init')
   const [connection, setConnection] = useState(null)
   const [rows, setRows]             = useState([])
@@ -303,7 +305,7 @@ export default function MetaAds() {
 
                   const [y, m, d] = row.date.split('-')
                   const dateLabel = new Date(Number(y), Number(m) - 1, Number(d))
-                    .toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+                    .toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: timezone })
 
                   return (
                     <tr key={row.date} className="border-b border-white/5 hover:bg-white/2 transition-colors">
@@ -326,7 +328,7 @@ export default function MetaAds() {
         <p className="text-xs text-white/25 text-right">
           Última sincronización:{' '}
           {new Date(connection.last_synced_at).toLocaleString('es-ES', {
-            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone,
           })}
         </p>
       )}
