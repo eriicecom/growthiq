@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ShoppingBag, Facebook } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import ShopifySettings from './settings/ShopifySettings'
@@ -73,7 +73,12 @@ function Breadcrumb({ crumbs, onNavigate }) {
 }
 
 export default function Settings() {
-  const [view, setView] = useState('home') // 'home' | 'integrations' | 'shopify' | 'meta'
+  const { pathname } = useLocation()
+  const initialView = pathname.includes('/integrations/shopify') ? 'shopify'
+    : pathname.includes('/integrations/meta')                    ? 'meta'
+    : pathname.includes('/integrations')                         ? 'integrations'
+    : 'home'
+  const [view, setView] = useState(initialView)
   const routerNavigate = useNavigate()
 
   function navigate(v) { setView(v) }

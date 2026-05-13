@@ -57,7 +57,10 @@ export default function App() {
                 <Route path="tiktok-ads" element={<TikTokAds />} />
                 <Route path="customers"  element={<Customers />} />
                 <Route path="orders"     element={<Orders />} />
-                <Route path="settings"   element={<Settings />} />
+                <Route path="settings"                      element={<Settings />} />
+                <Route path="settings/integrations"         element={<Settings />} />
+                <Route path="settings/integrations/shopify" element={<Settings />} />
+                <Route path="settings/integrations/meta"    element={<Settings />} />
               </Route>
             </Route>
 
