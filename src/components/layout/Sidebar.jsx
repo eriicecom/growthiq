@@ -39,7 +39,7 @@ const navGroups = [
   {
     label: 'Integraciones',
     items: [
-      { to: '/settings/integrations', icon: ShoppingBag, label: 'Shopify'   },
+      { to: '/settings/integrations/shopify', icon: ShoppingBag, label: 'Shopify'   },
       { to: '/settings/integrations', icon: Globe,       label: 'WordPress', badge: 'Próximamente' },
     ],
   },
@@ -107,6 +107,7 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
                 <li key={label}>
                   <NavLink
                     to={to}
+                    end
                     className={({ isActive }) =>
                       clsx(
                         'nav-item',
