@@ -8,6 +8,8 @@ import {
   Music2,
   Users,
   ShoppingCart,
+  ShoppingBag,
+  Globe,
   Settings,
   Zap,
   LogOut,
@@ -38,6 +40,13 @@ const navGroups = [
     label: 'Configuración',
     items: [
       { to: '/settings', icon: Settings, label: 'Ajustes' },
+    ],
+  },
+  {
+    label: 'Integraciones',
+    items: [
+      { to: '/settings/integrations/shopify',   icon: ShoppingBag, label: 'Shopify',   iconColor: '#96BF48' },
+      { to: '/settings/integrations/wordpress', icon: Globe,       label: 'WordPress', iconColor: '#21759B', badge: 'Próximamente' },
     ],
   },
 ]
@@ -94,7 +103,7 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
               </p>
             )}
             <ul className="space-y-0.5">
-              {group.items.map(({ to, icon: Icon, label }) => (
+              {group.items.map(({ to, icon: Icon, label, iconColor, badge }) => (
                 <li key={to}>
                   <NavLink
                     to={to}
@@ -107,8 +116,17 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
                     }
                     title={collapsed ? label : undefined}
                   >
-                    <Icon size={18} className="shrink-0" />
-                    {!collapsed && <span>{label}</span>}
+                    <Icon size={18} className="shrink-0" style={iconColor ? { color: iconColor } : undefined} />
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1">{label}</span>
+                        {badge && (
+                          <span className="text-[9px] font-semibold uppercase tracking-wide bg-white/10 text-white/40 px-1.5 py-0.5 rounded-full">
+                            {badge}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </NavLink>
                 </li>
               ))}
