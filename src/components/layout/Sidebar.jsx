@@ -104,7 +104,7 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
             )}
             <ul className="space-y-0.5">
               {group.items.map(({ to, icon: Icon, label, badge }) => (
-                <li key={to}>
+                <li key={label}>
                   <NavLink
                     to={to}
                     className={({ isActive }) =>
