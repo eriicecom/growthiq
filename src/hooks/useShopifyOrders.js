@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { buildPeriodWindows } from '@/lib/periodUtils'
+import { usePlatform } from '@/contexts/PlatformContext'
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
@@ -121,12 +122,19 @@ const EMPTY_STATE = {
 
 // period: 'today' | 'yesterday' | '7' | '14' | '30' | '90'
 export function useShopifyOrders(period = '30') {
+  const { platform }              = usePlatform()
   const [state, setState]         = useState({ ...EMPTY_STATE, loading: isSupabaseConfigured })
   const [syncing, setSyncing]     = useState(false)
   const [syncError, setSyncError] = useState('')
 
   const fetchData = useCallback(async () => {
     if (!isSupabaseConfigured) return
+
+    // WordPress not yet integrated — return empty state
+    if (platform === 'wordpress') {
+      setState({ ...EMPTY_STATE, loading: false })
+      return
+    }
 
     try {
       const {
@@ -295,7 +303,7 @@ export function useShopifyOrders(period = '30') {
       console.error('[useShopifyOrders]', err)
       setState({ ...EMPTY_STATE })
     }
-  }, [period])
+  }, [period, platform])
 
   const sync = useCallback(async () => {
     setSyncing(true)

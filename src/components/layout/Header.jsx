@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bell, Search, PanelLeftClose, PanelLeftOpen, X, ChevronDown, Menu } from 'lucide-react'
+import { Bell, Search, PanelLeftClose, PanelLeftOpen, X, ChevronDown, Menu, LayoutGrid, ShoppingBag, Globe } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePeriod, PERIODS } from '@/contexts/PeriodContext'
+import { usePlatform } from '@/contexts/PlatformContext'
 
 const pageTitles = {
   '/dashboard':  { title: 'Dashboard',     subtitle: 'Resumen general de tu negocio' },
@@ -28,6 +29,74 @@ function PeriodSelector() {
         ))}
       </select>
       <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+    </div>
+  )
+}
+
+const PLATFORM_OPTIONS = [
+  { value: 'all',       label: 'Todas',     icon: LayoutGrid,  color: null,      disabled: false },
+  { value: 'shopify',   label: 'Shopify',   icon: ShoppingBag, color: '#96BF48', disabled: false },
+  { value: 'wordpress', label: 'WordPress', icon: Globe,       color: '#21759B', disabled: true  },
+]
+
+function PlatformSelector() {
+  const { platform, setPlatform } = usePlatform()
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  const current = PLATFORM_OPTIONS.find(p => p.value === platform) ?? PLATFORM_OPTIONS[0]
+  const CurrentIcon = current.icon
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    if (open) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={`flex items-center gap-1.5 border rounded-lg pl-2.5 pr-2 py-1.5 text-xs cursor-pointer transition-colors
+          ${platform !== 'all'
+            ? 'bg-brand-500/10 border-brand-500/30 text-brand-400 hover:border-brand-500/50'
+            : 'bg-surface-700 border-white/5 text-white/60 hover:border-white/10'}`}
+      >
+        <CurrentIcon size={13} style={current.color && platform !== 'all' ? { color: current.color } : undefined} />
+        <span className="hidden sm:block">{current.label}</span>
+        <ChevronDown size={11} className="text-white/30" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 w-44 z-50 bg-surface-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden py-1">
+          {PLATFORM_OPTIONS.map(({ value, label, icon: Icon, color, disabled }) => {
+            const isActive = value === platform
+            return (
+              <button
+                key={value}
+                disabled={disabled}
+                onClick={() => { if (!disabled) { setPlatform(value); setOpen(false) } }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs transition-colors text-left
+                  ${isActive ? 'text-white bg-white/5' : 'text-white/50 hover:text-white hover:bg-white/5'}
+                  ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <Icon size={14} style={color ? { color } : undefined} />
+                <span className="flex-1">{label}</span>
+                {disabled && (
+                  <span className="text-[9px] font-medium bg-white/5 text-white/30 px-1.5 py-0.5 rounded-full">
+                    Próximamente
+                  </span>
+                )}
+                {isActive && !disabled && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0" />
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -60,7 +129,9 @@ function NotificationsPanel({ onClose }) {
 export default function Header({ collapsed, onToggle, onMobileMenuOpen }) {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
-  const page = pageTitles[pathname] ?? { title: 'GrowthIQ', subtitle: '' }
+  const page         = pageTitles[pathname] ?? { title: 'GrowthIQ', subtitle: '' }
+  const { platform } = usePlatform()
+  const activePlatform = platform !== 'all' ? PLATFORM_OPTIONS.find(p => p.value === platform) : null
 
   const [searchTerm,   setSearchTerm]   = useState('')
   const [searchOpen,   setSearchOpen]   = useState(false)
@@ -204,6 +275,17 @@ export default function Header({ collapsed, onToggle, onMobileMenuOpen }) {
         </button>
         {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
       </div>
+
+      {/* Platform badge — desktop only, shown when a specific platform is active */}
+      {activePlatform && (
+        <div className="hidden lg:flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-brand-500/10 text-brand-400 border border-brand-500/20 whitespace-nowrap">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
+          Viendo: {activePlatform.label}
+        </div>
+      )}
+
+      {/* Platform selector */}
+      <PlatformSelector />
 
       {/* Period selector — always visible */}
       <PeriodSelector />

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { Loader2 } from 'lucide-react'
 import { AuthProvider, useSession } from '@/contexts/AuthContext'
 import { PeriodProvider } from '@/contexts/PeriodContext'
+import { PlatformProvider } from '@/contexts/PlatformContext'
 import Layout from '@/components/layout/Layout'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
@@ -41,6 +42,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <PlatformProvider>
         <PeriodProvider>
           <Routes>
             <Route element={<AuthRoute />}>
@@ -70,6 +72,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </PeriodProvider>
+        </PlatformProvider>
       </AuthProvider>
     </BrowserRouter>
   )
