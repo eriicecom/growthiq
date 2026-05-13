@@ -40,7 +40,7 @@ const navGroups = [
     label: 'Integraciones',
     items: [
       { to: '/settings/integrations/shopify', icon: ShoppingBag, label: 'Shopify'   },
-      { to: '/settings/integrations', icon: Globe,       label: 'WordPress', badge: 'Próximamente' },
+      { to: '/settings/integrations/wordpress', icon: Globe, label: 'WordPress', badge: 'Próximamente' },
     ],
   },
   {

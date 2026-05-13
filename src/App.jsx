@@ -60,7 +60,8 @@ export default function App() {
                 <Route path="settings"                      element={<Settings />} />
                 <Route path="settings/integrations"         element={<Settings />} />
                 <Route path="settings/integrations/shopify" element={<Settings />} />
-                <Route path="settings/integrations/meta"    element={<Settings />} />
+                <Route path="settings/integrations/meta"      element={<Settings />} />
+                <Route path="settings/integrations/wordpress" element={<Settings />} />
               </Route>
             </Route>
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Settings as SettingsIcon, Store, CreditCard, Bell, Key, Users, Palette, ChevronRight, ShoppingBag, Facebook } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -72,14 +72,21 @@ function Breadcrumb({ crumbs, onNavigate }) {
   )
 }
 
+function deriveView(path) {
+  if (path.includes('/integrations/shopify'))   return 'shopify'
+  if (path.includes('/integrations/meta'))      return 'meta'
+  if (path.includes('/integrations'))           return 'integrations'
+  return 'home'
+}
+
 export default function Settings() {
   const { pathname } = useLocation()
-  const initialView = pathname.includes('/integrations/shopify') ? 'shopify'
-    : pathname.includes('/integrations/meta')                    ? 'meta'
-    : pathname.includes('/integrations')                         ? 'integrations'
-    : 'home'
-  const [view, setView] = useState(initialView)
+  const [view, setView] = useState(() => deriveView(pathname))
   const routerNavigate = useNavigate()
+
+  useEffect(() => {
+    setView(deriveView(pathname))
+  }, [pathname])
 
   function navigate(v) { setView(v) }
 
