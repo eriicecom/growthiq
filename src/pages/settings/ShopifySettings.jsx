@@ -113,8 +113,8 @@ export default function ShopifySettings() {
     setStep('saving')
     const { data: { user } } = await supabase.auth.getUser()
     const { error: dbErr } = await supabase.from('shopify_connections').upsert(
-      { shop_domain: domain, access_token: accessToken, is_active: false, user_id: user?.id },
-      { onConflict: 'user_id,shop_domain' }
+      { shop_domain: domain, access_token: accessToken, is_active: false, user_id: user?.id, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
     )
     if (dbErr) {
       setError('Error al guardar la configuración. Verifica que Supabase esté configurado.')
