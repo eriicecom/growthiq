@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import {
   ResponsiveContainer, ComposedChart, Area, Line,
+  BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
@@ -21,10 +22,10 @@ const PAGE_SIZE    = 20
 const STATUS_OPTS  = ['Todos','Entregado','Procesando','En tránsito','Pendiente','Cancelado','Reembolsado']
 
 const FUNNEL_ITEMS = [
-  { key: 'completados',  label: 'Completados',  bar: 'bg-emerald-500', text: 'text-emerald-400', icon: CheckCircle2 },
-  { key: 'pendientes',   label: 'Pendientes',   bar: 'bg-amber-500',   text: 'text-amber-400',   icon: Clock        },
-  { key: 'cancelados',   label: 'Cancelados',   bar: 'bg-red-500',     text: 'text-red-400',     icon: XCircle      },
-  { key: 'reembolsados', label: 'Reembolsados', bar: 'bg-orange-500',  text: 'text-orange-400',  icon: RotateCcw    },
+  { key: 'completados',  label: 'Completados',  bar: 'bg-emerald-500/70', text: 'text-emerald-400', icon: CheckCircle2 },
+  { key: 'pendientes',   label: 'Pendientes',   bar: 'bg-amber-500/70',   text: 'text-amber-400',   icon: Clock        },
+  { key: 'cancelados',   label: 'Cancelados',   bar: 'bg-red-500/70',     text: 'text-red-400',     icon: XCircle      },
+  { key: 'reembolsados', label: 'Reembolsados', bar: 'bg-orange-500/70',  text: 'text-orange-400',  icon: RotateCcw    },
 ]
 
 const STATUS_BADGE = {
@@ -252,6 +253,50 @@ function CompareChart({ data, mode, days, symbol, convert }) {
   const cfg = CHART_MODES.find(m => m.key === mode) ?? CHART_MODES[0]
   const prevKey = `${mode}_prev`
 
+  // ── Single-day bar chart (today / yesterday) ────────────────────────────
+  if (data.length <= 1) {
+    const pt  = data[0] ?? {}
+    const fv  = v => cfg.isMoney
+      ? `${symbol}${new Intl.NumberFormat('es-ES').format(convert(v))}`
+      : new Intl.NumberFormat('es-ES').format(v)
+    const dayLabel  = days === 'today' ? 'Hoy' : days === 'yesterday' ? 'Ayer' : 'Período'
+    const barData = [
+      { label: dayLabel,         value: pt[mode]    ?? 0, opacity: 1    },
+      { label: 'Semana anterior', value: pt[prevKey] ?? 0, opacity: 0.35 },
+    ]
+    const tickFmtBar = v => {
+      const cv = convert(v)
+      if (cv >= 1_000) return `${symbol}${(cv / 1_000).toFixed(1)}k`
+      return cfg.isMoney ? `${symbol}${Math.round(cv)}` : String(Math.round(v))
+    }
+    return (
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={barData} barSize={64} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={tickFmtBar} width={52} />
+          <Tooltip
+            cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null
+              return (
+                <div className="bg-surface-700 border border-white/10 rounded-xl p-3 shadow-xl text-xs">
+                  <p className="text-white/60 mb-1 font-medium">{label}</p>
+                  <p className="text-white font-semibold">{fv(payload[0]?.value ?? 0)}</p>
+                </div>
+              )
+            }}
+          />
+          <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            {barData.map((entry, i) => (
+              <Cell key={i} fill={cfg.color} fillOpacity={entry.opacity} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    )
+  }
+
   const maxVal = convert(data.reduce((m, d) => Math.max(m, d[mode] ?? 0, d[prevKey] ?? 0), 0))
   const interval = days <= 7 ? 0 : days <= 14 ? 1 : days <= 30 ? 3 : 9
 
@@ -412,7 +457,7 @@ function OrderFunnel({ funnel, loading }) {
                   </div>
                 </div>
                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                  <div className={`h-full ${bar}/70 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                  <div className={`h-full ${bar} rounded-full transition-all`} style={{ width: `${pct}%` }} />
                 </div>
               </div>
             )
