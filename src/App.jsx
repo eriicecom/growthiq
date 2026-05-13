@@ -10,6 +10,7 @@ import Sales from '@/pages/Sales'
 import Products from '@/pages/Products'
 import MetaAds from '@/pages/MetaAds'
 import TikTokAds from '@/pages/TikTokAds'
+import GoogleAds from '@/pages/GoogleAds'
 import Customers from '@/pages/Customers'
 import Orders from '@/pages/Orders'
 import Settings from '@/pages/Settings'
@@ -54,7 +55,8 @@ export default function App() {
                 <Route path="sales"      element={<Sales />} />
                 <Route path="products"   element={<Products />} />
                 <Route path="meta-ads"   element={<MetaAds />} />
-                <Route path="tiktok-ads" element={<TikTokAds />} />
+                <Route path="tiktok-ads"  element={<TikTokAds />} />
+                <Route path="google-ads"  element={<GoogleAds />} />
                 <Route path="customers"  element={<Customers />} />
                 <Route path="orders"     element={<Orders />} />
                 <Route path="settings"                      element={<Settings />} />

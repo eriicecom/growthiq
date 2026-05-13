@@ -6,6 +6,7 @@ import {
   Package,
   Facebook,
   Music2,
+  Search,
   Users,
   ShoppingCart,
   ShoppingBag,
@@ -32,8 +33,9 @@ const navGroups = [
   {
     label: 'Publicidad',
     items: [
-      { to: '/meta-ads',   icon: Facebook, label: 'Meta Ads' },
-      { to: '/tiktok-ads', icon: Music2,   label: 'TikTok Ads' },
+      { to: '/meta-ads',    icon: Facebook, label: 'Meta Ads'    },
+      { to: '/tiktok-ads', icon: Music2,   label: 'TikTok Ads'  },
+      { to: '/google-ads', icon: Search,   label: 'Google Ads'  },
     ],
   },
   {
