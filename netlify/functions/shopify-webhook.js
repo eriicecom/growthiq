@@ -1,18 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
-import crypto from 'crypto'
 import ws from 'ws'
 
 // Topics that route to the order upsert path
 const ORDER_TOPICS = new Set(['orders/create', 'orders/updated', 'orders/paid'])
 // Topics handled by targeted column updates (not full upserts)
 const ALL_TOPICS   = new Set([...ORDER_TOPICS, 'fulfillments/create'])
-
-function verifyHmac(rawBody, hmacHeader, secret) {
-  const hash = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
-  const a = Buffer.from(hash)
-  const b = Buffer.from(hmacHeader)
-  return a.length === b.length && crypto.timingSafeEqual(a, b)
-}
 
 function mapOrder(order, userId) {
   const firstName = order.customer?.first_name || ''
@@ -38,21 +30,6 @@ function mapOrder(order, userId) {
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' }
-  }
-
-  // ── HMAC verification ────────────────────────────────────────────────────
-  const secret     = process.env.SHOPIFY_WEBHOOK_SECRET
-  const hmacHeader = event.headers['x-shopify-hmac-sha256']
-
-  if (secret) {
-    if (!hmacHeader) {
-      console.warn('[webhook] missing x-shopify-hmac-sha256 header')
-      return { statusCode: 401, body: 'Unauthorized' }
-    }
-    if (!verifyHmac(event.body, hmacHeader, secret)) {
-      console.warn('[webhook] HMAC verification failed')
-      return { statusCode: 401, body: 'Unauthorized' }
-    }
   }
 
   // ── Topic filter ─────────────────────────────────────────────────────────
