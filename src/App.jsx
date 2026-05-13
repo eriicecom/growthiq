@@ -9,6 +9,7 @@ import Signup from '@/pages/Signup'
 import Dashboard from '@/pages/Dashboard'
 import Sales from '@/pages/Sales'
 import Products from '@/pages/Products'
+import ProductDetail from '@/pages/ProductDetail'
 import MetaAds from '@/pages/MetaAds'
 import TikTokAds from '@/pages/TikTokAds'
 import GoogleAds from '@/pages/GoogleAds'
@@ -55,7 +56,8 @@ export default function App() {
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard"  element={<Dashboard />} />
                 <Route path="sales"      element={<Sales />} />
-                <Route path="products"   element={<Products />} />
+                <Route path="products"      element={<Products />} />
+                <Route path="products/:id" element={<ProductDetail />} />
                 <Route path="meta-ads"   element={<MetaAds />} />
                 <Route path="tiktok-ads"  element={<TikTokAds />} />
                 <Route path="google-ads"  element={<GoogleAds />} />

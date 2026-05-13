@@ -1,183 +1,51 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, X, CheckCircle2, Loader2, Package, AlertCircle, Settings } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import {
+  Package, AlertCircle, Settings, Search,
+  ChevronRight, ChevronLeft, CheckCircle2,
+} from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-function ProductSkeleton() {
-  return (
-    <div className="card p-5 space-y-4 animate-pulse">
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-lg bg-white/5 shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 w-48 bg-white/5 rounded" />
-          <div className="h-3 w-24 bg-white/5 rounded" />
-        </div>
-        <div className="h-3 w-20 bg-white/5 rounded" />
-      </div>
-      <div className="h-px bg-white/5" />
-      <div className="space-y-2.5">
-        <div className="h-3 w-32 bg-white/5 rounded" />
-        <div className="h-8 bg-white/5 rounded-lg" />
-        <div className="h-8 bg-white/5 rounded-lg" />
-      </div>
-    </div>
-  )
+const PAGE_SIZE = 50
+
+function Sk({ className }) {
+  return <div className={`bg-white/5 rounded animate-pulse ${className}`} />
 }
 
-// ── Cost row ──────────────────────────────────────────────────────────────────
-function CostRow({ qty, cost, removable, onCostChange, onRemove }) {
+function PageSkeleton() {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-white/40 w-24 shrink-0">
-        {qty} {qty === 1 ? 'unidad' : 'unidades'}
-      </span>
-      <div className="relative flex-1 max-w-[180px]">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/30 pointer-events-none">$</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={cost}
-          onChange={(e) => onCostChange(e.target.value)}
-          placeholder="0.00"
-          className="w-full bg-surface-700 border border-white/8 rounded-lg pl-7 pr-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-brand-500/40 focus:ring-1 focus:ring-brand-500/15 transition-colors"
-        />
+    <div className="max-w-screen-lg mx-auto space-y-5">
+      <div className="space-y-1.5">
+        <Sk className="h-5 w-40" />
+        <Sk className="h-3 w-64" />
       </div>
-      {removable ? (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="p-2.5 text-white/20 hover:text-red-400 transition-colors rounded"
-          title="Eliminar tramo"
-        >
-          <X size={14} />
-        </button>
-      ) : (
-        <div className="w-9" />
-      )}
-    </div>
-  )
-}
-
-// ── Product card ──────────────────────────────────────────────────────────────
-function ProductCard({ product, tiers, onTiersChange, onSave, saving, saved, saveError }) {
-  const minPrice = product.variants.length
-    ? Math.min(...product.variants.map((v) => v.price))
-    : 0
-
-  function updateCost(index, value) {
-    onTiersChange(tiers.map((t, i) => (i === index ? { ...t, cost: value } : t)))
-  }
-
-  function addTier() {
-    const maxQty = Math.max(...tiers.map((t) => t.qty))
-    onTiersChange([...tiers, { qty: maxQty + 1, cost: '' }])
-  }
-
-  function removeTier(index) {
-    onTiersChange(tiers.filter((_, i) => i !== index))
-  }
-
-  return (
-    <div className="card p-5 space-y-4">
-      {/* Product header */}
-      <div className="flex items-center gap-3">
-        {product.image ? (
-          <img
-            src={product.image}
-            alt={product.title}
-            className="w-12 h-12 rounded-lg object-cover bg-white/5 shrink-0"
-          />
-        ) : (
-          <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-            <Package size={18} className="text-white/20" />
+      <Sk className="h-9 w-full rounded-lg" />
+      <div className="card overflow-hidden divide-y divide-white/5">
+        {[1,2,3,4,5,6,7,8].map(i => (
+          <div key={i} className="flex items-center gap-4 px-5 py-4">
+            <Sk className="w-12 h-12 rounded-lg shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Sk className="h-4 w-48" />
+              <Sk className="h-3 w-24" />
+            </div>
+            <Sk className="h-5 w-20 rounded-full" />
+            <Sk className="h-4 w-16" />
           </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">{product.title}</p>
-          {product.variants.length > 1 && (
-            <p className="text-xs text-white/40 mt-0.5">{product.variants.length} variantes</p>
-          )}
-        </div>
-        <p className="text-xs text-white/40 shrink-0">
-          Precio:{' '}
-          <span className="text-white/70 font-medium">
-            ${minPrice.toFixed(2)}
-          </span>
-        </p>
-      </div>
-
-      <div className="border-t border-white/5" />
-
-      {/* Cost tiers */}
-      <div className="space-y-3">
-        <p className="text-xs font-medium text-white/50">Coste por cantidad</p>
-
-        <div className="space-y-2">
-          {tiers.map((tier, i) => (
-            <CostRow
-              key={i}
-              qty={tier.qty}
-              cost={tier.cost}
-              removable={i > 0}
-              onCostChange={(v) => updateCost(i, v)}
-              onRemove={() => removeTier(i)}
-            />
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={addTier}
-          className="flex items-center gap-1.5 text-xs text-brand-400/60 hover:text-brand-400 transition-colors mt-1 py-2"
-        >
-          <Plus size={13} />
-          Añadir tramo de cantidad
-        </button>
-      </div>
-
-      {/* Save button + inline error */}
-      <div className="border-t border-white/5 pt-3 space-y-2">
-        {saveError && (
-          <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-1.5">
-            {saveError}
-          </p>
-        )}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              saved
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 cursor-default'
-                : 'btn-primary disabled:opacity-50 disabled:cursor-not-allowed'
-            }`}
-          >
-            {saving ? (
-              <><Loader2 size={12} className="animate-spin" /> Guardando...</>
-            ) : saved ? (
-              <><CheckCircle2 size={12} /> Guardado</>
-            ) : (
-              'Guardar costes'
-            )}
-          </button>
-        </div>
+        ))}
       </div>
     </div>
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function Products() {
-  const [products, setProducts] = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState('')
-  const [tiers, setTiers]       = useState({}) // { productId: [{ qty, cost }] }
-  const [saving, setSaving]     = useState({}) // { productId: bool }
-  const [saved, setSaved]       = useState({}) // { productId: bool }
-  const [saveError, setSaveError] = useState({}) // { productId: string }
+  const navigate = useNavigate()
+
+  const [products,  setProducts]  = useState([])
+  const [costs,     setCosts]     = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState('')
+  const [search,    setSearch]    = useState('')
+  const [page,      setPage]      = useState(0)
 
   const loadData = useCallback(async () => {
     if (!isSupabaseConfigured) { setLoading(false); return }
@@ -189,11 +57,7 @@ export default function Products() {
       fetch('/.netlify/functions/shopify-fetch-products', {
         headers: { Authorization: `Bearer ${session.access_token}` },
       }),
-      supabase
-        .from('product_costs')
-        .select('shopify_product_id, quantity, cost')
-        .order('shopify_product_id')
-        .order('quantity'),
+      supabase.from('product_costs').select('shopify_product_id').order('shopify_product_id'),
     ])
 
     if (!productsRes.ok) {
@@ -205,102 +69,33 @@ export default function Products() {
 
     const { products: shopifyProducts } = await productsRes.json()
     setProducts(shopifyProducts)
-
-    const savedCosts = costsRes.data || []
-
-    // Remove costs for products that no longer exist in Shopify
-    const liveIds = new Set(shopifyProducts.map((p) => p.id))
-    const staleIds = [...new Set(savedCosts.map((r) => r.shopify_product_id))].filter(
-      (id) => !liveIds.has(id)
-    )
-    if (staleIds.length > 0) {
-      await supabase
-        .from('product_costs')
-        .delete()
-        .eq('user_id', session.user.id)
-        .in('shopify_product_id', staleIds)
-    }
-
-    // Build tiers state from the remaining (non-stale) saved costs
-    const tiersState = {}
-    for (const prod of shopifyProducts) {
-      const rows = savedCosts
-        .filter((r) => r.shopify_product_id === prod.id)
-        .map((r) => ({ qty: r.quantity, cost: String(r.cost) }))
-      const hasQty1 = rows.some((r) => r.qty === 1)
-      tiersState[prod.id] = hasQty1 ? rows : [{ qty: 1, cost: '' }, ...rows]
-    }
-    setTiers(tiersState)
+    setCosts(costsRes.data || [])
     setLoading(false)
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
 
-  async function saveCosts(productId, productTitle) {
-    setSaving((p) => ({ ...p, [productId]: true }))
-    setSaveError((p) => ({ ...p, [productId]: '' }))
+  // Reset page when search changes
+  useEffect(() => { setPage(0) }, [search])
 
-    try {
-      const { data: authData, error: authError } = await supabase.auth.getUser()
-      if (authError || !authData?.user) {
-        throw new Error(authError?.message || 'No hay sesión activa')
-      }
-      const userId = authData.user.id
-      console.log('[saveCosts] user_id:', userId, '| product_id:', productId)
+  const configuredIds = useMemo(
+    () => new Set((costs || []).map(c => c.shopify_product_id)),
+    [costs]
+  )
 
-      const rows = (tiers[productId] || []).filter(
-        (r) => r.cost !== '' && !isNaN(parseFloat(r.cost)) && parseFloat(r.cost) >= 0
-      )
-      console.log('[saveCosts] rows a guardar:', rows)
+  const filtered = useMemo(() => {
+    if (!search.trim()) return products
+    const q = search.toLowerCase()
+    return products.filter(p => p.title.toLowerCase().includes(q))
+  }, [products, search])
 
-      // Delete existing rows for this product
-      const { error: deleteError } = await supabase
-        .from('product_costs')
-        .delete()
-        .eq('user_id', userId)
-        .eq('shopify_product_id', productId)
-
-      if (deleteError) {
-        console.error('[saveCosts] DELETE error:', deleteError)
-        throw new Error(deleteError.message)
-      }
-
-      // Insert new rows (only if there are any)
-      if (rows.length > 0) {
-        const insertPayload = rows.map((r) => ({
-          user_id:            userId,
-          shopify_product_id: productId,
-          product_title:      productTitle,
-          quantity:           Number(r.qty),
-          cost:               parseFloat(r.cost),
-        }))
-        console.log('[saveCosts] INSERT payload:', insertPayload)
-
-        const { error: insertError } = await supabase
-          .from('product_costs')
-          .insert(insertPayload)
-
-        if (insertError) {
-          console.error('[saveCosts] INSERT error:', insertError)
-          throw new Error(insertError.message)
-        }
-      }
-
-      console.log('[saveCosts] OK')
-      setSaved((p) => ({ ...p, [productId]: true }))
-      setTimeout(() => setSaved((p) => ({ ...p, [productId]: false })), 2000)
-    } catch (err) {
-      console.error('[saveCosts] excepción:', err.message)
-      setSaveError((p) => ({ ...p, [productId]: err.message }))
-    } finally {
-      setSaving((p) => ({ ...p, [productId]: false }))
-    }
-  }
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const pageItems  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   // ── States ────────────────────────────────────────────────────────────────
   if (!isSupabaseConfigured) {
     return (
-      <div className="max-w-2xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="max-w-screen-lg mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="card p-10 text-center space-y-3 max-w-sm w-full">
           <AlertCircle size={28} className="mx-auto text-amber-400" />
           <p className="text-sm font-semibold text-white">Supabase no configurado</p>
@@ -309,10 +104,12 @@ export default function Products() {
     )
   }
 
-  if (!loading && error) {
+  if (loading) return <PageSkeleton />
+
+  if (error) {
     const noShopify = error.toLowerCase().includes('shopify') || error.toLowerCase().includes('conectada')
     return (
-      <div className="max-w-2xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="max-w-screen-lg mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="card p-10 text-center space-y-4 max-w-md w-full">
           <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mx-auto">
             <Package size={24} className="text-white/30" />
@@ -333,21 +130,9 @@ export default function Products() {
     )
   }
 
-  if (loading) {
-    return (
-      <div className="max-w-2xl mx-auto space-y-5">
-        <div className="space-y-1.5">
-          <div className="h-5 w-48 bg-white/5 rounded animate-pulse" />
-          <div className="h-3 w-72 bg-white/5 rounded animate-pulse" />
-        </div>
-        {[1, 2, 3].map((i) => <ProductSkeleton key={i} />)}
-      </div>
-    )
-  }
-
   if (products.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="max-w-screen-lg mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="card p-10 text-center space-y-3 max-w-sm w-full">
           <Package size={28} className="mx-auto text-white/20" />
           <p className="text-sm font-semibold text-white">No hay productos</p>
@@ -358,28 +143,132 @@ export default function Products() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-5">
-      <div>
-        <h2 className="text-base font-semibold text-white">Gestión de Costes</h2>
-        <p className="text-xs text-white/40 mt-0.5">
-          Configura el coste real de cada producto para calcular COGS y margen neto precisos en el dashboard.
-        </p>
+    <div className="max-w-screen-lg mx-auto space-y-5">
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-white">Catálogo de Productos</h2>
+          <p className="text-xs text-white/40 mt-0.5">
+            {products.length} productos · Haz click para configurar costes
+          </p>
+        </div>
       </div>
 
-      {products.map((product) => (
-        <ProductCard
-          key={product.id}
-          product={product}
-          tiers={tiers[product.id] || [{ qty: 1, cost: '' }]}
-          onTiersChange={(newTiers) =>
-            setTiers((p) => ({ ...p, [product.id]: newTiers }))
-          }
-          onSave={() => saveCosts(product.id, product.title)}
-          saving={!!saving[product.id]}
-          saved={!!saved[product.id]}
-          saveError={saveError[product.id] || ''}
+      {/* Search */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar producto por nombre…"
+          className="w-full bg-surface-700 border border-white/5 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/25 focus:outline-none focus:border-white/15 transition-colors"
         />
-      ))}
+      </div>
+
+      {/* Product list */}
+      {filtered.length === 0 ? (
+        <div className="card flex items-center justify-center py-16 text-sm text-white/30">
+          Sin resultados para "{search}"
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
+          <div className="divide-y divide-white/5">
+            {pageItems.map(product => {
+              const minPrice = product.variants?.length
+                ? Math.min(...product.variants.map(v => parseFloat(v.price) || 0))
+                : 0
+              const variantCount = product.variants?.length ?? 0
+              const hasCosts     = configuredIds.has(product.id)
+
+              return (
+                <button
+                  key={product.id}
+                  onClick={() => navigate(`/products/${product.id}`)}
+                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/3 transition-colors text-left group"
+                >
+                  {/* Image */}
+                  {product.image ? (
+                    <img
+                      src={product.image}
+                      alt={product.title}
+                      className="w-12 h-12 rounded-lg object-cover bg-white/5 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                      <Package size={18} className="text-white/20" />
+                    </div>
+                  )}
+
+                  {/* Name + variants */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate group-hover:text-brand-300 transition-colors">
+                      {product.title}
+                    </p>
+                    {variantCount > 1 && (
+                      <p className="text-xs text-white/35 mt-0.5">{variantCount} variantes</p>
+                    )}
+                  </div>
+
+                  {/* Cost badge */}
+                  {hasCosts ? (
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap shrink-0">
+                      <CheckCircle2 size={11} />
+                      Costes configurados
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/30 border border-white/5 whitespace-nowrap shrink-0">
+                      Sin coste
+                    </span>
+                  )}
+
+                  {/* Price */}
+                  <p className="text-sm font-semibold text-white/60 shrink-0 w-20 text-right">
+                    ${minPrice.toFixed(2)}
+                  </p>
+
+                  {/* Arrow */}
+                  <ChevronRight size={16} className="text-white/20 group-hover:text-white/40 transition-colors shrink-0" />
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-white/30">
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} de {filtered.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 disabled:opacity-30 transition-colors"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const pg = Math.max(0, Math.min(page - 2, totalPages - 5)) + i
+              return (
+                <button key={pg} onClick={() => setPage(pg)}
+                  className={`w-7 h-7 rounded-lg text-xs transition-colors ${pg === page ? 'bg-brand-500/20 text-brand-400 font-semibold' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>
+                  {pg + 1}
+                </button>
+              )
+            })}
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 disabled:opacity-30 transition-colors"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
