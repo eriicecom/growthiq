@@ -102,6 +102,7 @@ function processCustomers(allOrders, period) {
       currSpend,
       prevSpend,
       currOrders: c.currOrders.length,
+      prevOrders: c.prevOrders.length,
       firstOrder: sorted[0]?.shopify_created_at || '',
       lastOrder:  sorted[sorted.length - 1]?.shopify_created_at || '',
       ticketAvg:  c.allOrders.length ? totalSpend / c.allOrders.length : 0,
@@ -109,7 +110,7 @@ function processCustomers(allOrders, period) {
   })
 
   const inCurr = customers.filter(c => c.currOrders > 0)
-  const inPrev = customers.filter(c => c.prevOrders.length > 0 || c.prevSpend > 0)
+  const inPrev = customers.filter(c => c.prevOrders > 0)
 
   const cTotal = inCurr.length
   const cNew   = inCurr.filter(c => !c.isRecurring).length
@@ -118,7 +119,7 @@ function processCustomers(allOrders, period) {
   const cAvg   = cTotal ? cRev / cTotal : 0
 
   // Previous: recompute on prevOrders
-  const prevInPrev  = customers.filter(c => c.prevOrders.length > 0)
+  const prevInPrev = customers.filter(c => c.prevOrders > 0)
   const pTotal = prevInPrev.length
   const pNew   = prevInPrev.filter(c => !c.isRecurring).length
   const pRecur = prevInPrev.filter(c =>  c.isRecurring).length
@@ -521,7 +522,8 @@ export default function Customers() {
       .gte('shopify_created_at', compareStart.toISOString())
       .order('shopify_created_at', { ascending: false })
       .then(({ data: orders }) => {
-        setData(orders?.length ? processCustomers(orders, days) : null)
+        const safe = orders || []
+        setData(safe.length ? processCustomers(safe, days) : null)
         setLoading(false)
       })
   }, [days])
