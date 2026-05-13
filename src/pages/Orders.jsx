@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, X, ShoppingCart, AlertCircle } from 'lucide-react'
+import { Search, X, ShoppingCart, AlertCircle, RefreshCw } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import OrdersTable from '@/components/dashboard/OrdersTable'
 
@@ -14,35 +14,70 @@ function matchesSearch(order, term) {
   )
 }
 
+async function fetchOrders() {
+  const { data, error } = await supabase
+    .from('shopify_orders')
+    .select('shopify_id, amount, shopify_created_at, financial_status, fulfillment_status, order_number, customer_name, customer_email, currency, line_items, source_name')
+    .order('shopify_created_at', { ascending: false })
+    .limit(500)
+  return { data: data || [], error }
+}
+
 export default function Orders() {
-  const [orders, setOrders]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState('')
+  const [orders,       setOrders]       = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState('')
+  const [resyncing,    setResyncing]    = useState(false)
+
+  const resyncDone = useRef(false) // fire at most once per page visit
 
   const [searchParams, setSearchParams] = useSearchParams()
   const urlQ = searchParams.get('q') || ''
   const [search, setSearch] = useState(urlQ)
 
-  // Sync local search with URL param (e.g. when navigating from Header search)
   useEffect(() => { setSearch(urlQ) }, [urlQ])
 
+  // Load orders from Supabase
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
-      setLoading(false)
-      return
-    }
+    if (!isSupabaseConfigured || !supabase) { setLoading(false); return }
 
-    supabase
-      .from('shopify_orders')
-      .select('shopify_id, amount, shopify_created_at, financial_status, fulfillment_status, order_number, customer_name, customer_email, currency, line_items, source_name')
-      .order('shopify_created_at', { ascending: false })
-      .limit(500)
-      .then(({ data, error: err }) => {
-        if (err) setError(err.message)
-        setOrders(data || [])
-        setLoading(false)
+    fetchOrders().then(({ data, error: err }) => {
+      if (err) setError(err.message)
+      setOrders(data)
+      setLoading(false)
+
+      // Auto-trigger customer resync if any order has empty customer_name
+      const needsResync = data.some(o => !o.customer_name || o.customer_name === 'Cliente desconocido')
+      if (needsResync && !resyncDone.current) {
+        resyncDone.current = true
+        triggerCustomerResync()
+      }
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function triggerCustomerResync() {
+    if (!supabase) return
+    setResyncing(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      const res = await fetch('/.netlify/functions/shopify-resync-customers', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
-  }, [])
+
+      if (res.ok) {
+        // Reload orders from Supabase to show updated customer names
+        const { data } = await fetchOrders()
+        setOrders(data)
+      }
+    } catch (err) {
+      console.warn('[Orders] resync-customers failed silently:', err.message)
+    } finally {
+      setResyncing(false)
+    }
+  }
 
   function handleSearchChange(value) {
     setSearch(value)
@@ -85,24 +120,34 @@ export default function Orders() {
           </p>
         </div>
 
-        {/* Search input */}
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Buscar pedido, cliente, producto..."
-            className="bg-surface-700 border border-white/10 rounded-lg pl-9 pr-8 py-2 text-sm text-white placeholder-white/25 focus:outline-none focus:border-brand-500/50 focus:ring-1 focus:ring-brand-500/20 transition-colors w-full sm:w-72"
-          />
-          {search && (
-            <button
-              onClick={() => handleSearchChange('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
-            >
-              <X size={13} />
-            </button>
+        <div className="flex items-center gap-3">
+          {/* Resync indicator */}
+          {resyncing && (
+            <div className="flex items-center gap-1.5 text-xs text-white/40">
+              <RefreshCw size={12} className="animate-spin" />
+              Actualizando datos de clientes…
+            </div>
           )}
+
+          {/* Search input */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Buscar pedido, cliente, producto..."
+              className="bg-surface-700 border border-white/10 rounded-lg pl-9 pr-8 py-2 text-sm text-white placeholder-white/25 focus:outline-none focus:border-brand-500/50 focus:ring-1 focus:ring-brand-500/20 transition-colors w-full sm:w-72"
+            />
+            {search && (
+              <button
+                onClick={() => handleSearchChange('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
