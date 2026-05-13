@@ -3,7 +3,7 @@ import ws from 'ws'
 
 const API = '2025-07'
 
-function mapOrder(order, userId) {
+function mapOrder(order, userId, hasPhoneCol = false) {
   const firstName = order.customer?.first_name || ''
   const lastName  = order.customer?.last_name  || ''
   let customerName = [firstName, lastName].filter(Boolean).join(' ')
@@ -11,12 +11,11 @@ function mapOrder(order, userId) {
     customerName = order.billing_address?.name || order.shipping_address?.name || ''
   }
 
-  return {
+  const row = {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
     customer_name:      customerName || 'Cliente desconocido',
     customer_email:     order.customer?.email || order.email || '',
-    customer_phone:     order.customer?.phone || order.billing_address?.phone || order.shipping_address?.phone || '',
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',
@@ -27,6 +26,10 @@ function mapOrder(order, userId) {
     updated_at:         new Date().toISOString(),
     user_id:            userId,
   }
+  if (hasPhoneCol) {
+    row.customer_phone = order.customer?.phone || order.billing_address?.phone || order.shipping_address?.phone || null
+  }
+  return row
 }
 
 export const handler = async (event) => {
@@ -80,6 +83,10 @@ export const handler = async (event) => {
   const accessToken = access_token.trim()
   const startTime   = Date.now()
 
+  // Detect optional columns so mapOrder can conditionally include them
+  const { error: phoneColErr } = await supabase.from('shopify_orders').select('customer_phone').limit(0)
+  const hasPhoneCol = !phoneColErr
+
   try {
     let allOrders = []
     let nextUrl   = `https://${shopDomain}/admin/api/${API}/orders.json?status=any&limit=250`
@@ -115,7 +122,7 @@ export const handler = async (event) => {
 
         const { error: upsertErr } = await supabase
           .from('shopify_orders')
-          .upsert(orders.map(o => mapOrder(o, user.id)), { onConflict: 'user_id,shopify_id' })
+          .upsert(orders.map(o => mapOrder(o, user.id, hasPhoneCol)), { onConflict: 'user_id,shopify_id' })
 
         if (upsertErr) {
           return {

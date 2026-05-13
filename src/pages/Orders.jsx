@@ -34,7 +34,7 @@ export default function Orders() {
 
     supabase
       .from('shopify_orders')
-      .select('shopify_id, amount, shopify_created_at, financial_status, fulfillment_status, order_number, customer_name, customer_email, customer_phone, currency, line_items, source_name')
+      .select('shopify_id, amount, shopify_created_at, financial_status, fulfillment_status, order_number, customer_name, customer_email, currency, line_items, source_name')
       .order('shopify_created_at', { ascending: false })
       .limit(500)
       .then(({ data, error: err }) => {

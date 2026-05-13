@@ -6,19 +6,18 @@ const ORDER_TOPICS = new Set(['orders/create', 'orders/updated', 'orders/paid'])
 // Topics handled by targeted column updates (not full upserts)
 const ALL_TOPICS   = new Set([...ORDER_TOPICS, 'fulfillments/create'])
 
-function mapOrder(order, userId) {
+function mapOrder(order, userId, hasPhoneCol = false) {
   const firstName = order.customer?.first_name || ''
   const lastName  = order.customer?.last_name  || ''
   let customerName = [firstName, lastName].filter(Boolean).join(' ')
   if (!customerName) {
     customerName = order.billing_address?.name || order.shipping_address?.name || ''
   }
-  return {
+  const row = {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
     customer_name:      customerName || 'Cliente desconocido',
     customer_email:     order.customer?.email || order.email || '',
-    customer_phone:     order.customer?.phone || order.billing_address?.phone || order.shipping_address?.phone || '',
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',
@@ -29,6 +28,10 @@ function mapOrder(order, userId) {
     updated_at:         new Date().toISOString(),
     user_id:            userId,
   }
+  if (hasPhoneCol) {
+    row.customer_phone = order.customer?.phone || order.billing_address?.phone || order.shipping_address?.phone || null
+  }
+  return row
 }
 
 export const handler = async (event) => {
@@ -62,6 +65,10 @@ export const handler = async (event) => {
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } })
+
+  // Detect optional columns (customer_phone may not exist yet)
+  const { error: phoneColErr } = await supabase.from('shopify_orders').select('customer_phone').limit(0)
+  const hasPhoneCol = !phoneColErr
 
   // ── Look up user_id by shop domain ───────────────────────────────────────
   if (!shopDomain) {
@@ -106,7 +113,7 @@ export const handler = async (event) => {
   }
 
   // ── orders/* — full upsert ────────────────────────────────────────────────
-  const mapped = mapOrder(payload, conn.user_id)
+  const mapped = mapOrder(payload, conn.user_id, hasPhoneCol)
   const { error: upsertErr } = await supabase
     .from('shopify_orders')
     .upsert(mapped, { onConflict: 'user_id,shopify_id', ignoreDuplicates: false })
