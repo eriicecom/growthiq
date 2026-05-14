@@ -1,7 +1,11 @@
 /**
- * Targeted resync: reads all orders from Shopify and updates ONLY the
- * customer_name, customer_email and customer_phone columns in shopify_orders.
- * Safe to call multiple times. Logs first-order customer data for debugging.
+ * Two-phase customer fix:
+ *   1. Clean rows where customer_name = 'Cliente desconocido' → set to NULL
+ *   2. Fetch all orders from Shopify and UPDATE customer_name / customer_email /
+ *      customer_phone with real data (NULL when genuinely unavailable).
+ *
+ * POST /.netlify/functions/shopify-resync-customers
+ * Header: Authorization: Bearer <supabase-jwt>
  */
 import { createClient } from '@supabase/supabase-js'
 import ws from 'ws'
@@ -11,25 +15,16 @@ const API = '2025-07'
 function extractCustomer(order) {
   const firstName = order.customer?.first_name || ''
   const lastName  = order.customer?.last_name  || ''
-  let customerName = [firstName, lastName].filter(Boolean).join(' ')
+  let name = [firstName, lastName].filter(Boolean).join(' ')
 
-  // Guest checkout: use billing or shipping address name
-  if (!customerName) {
-    customerName = order.billing_address?.name
-      || order.shipping_address?.name
-      || ''
+  if (!name) {
+    name = order.billing_address?.name || order.shipping_address?.name || ''
   }
-
-  // contact_email is Shopify's primary email field in newer API versions
-  const email = order.customer?.email
-    || order.contact_email
-    || order.email
-    || null
 
   return {
     shopify_id:     String(order.id),
-    customer_name:  customerName || 'Cliente desconocido',
-    customer_email: email,
+    customer_name:  name.trim() || null,
+    customer_email: order.customer?.email || order.contact_email || order.email || null,
     customer_phone: order.customer?.phone
       || order.billing_address?.phone
       || order.shipping_address?.phone
@@ -48,19 +43,35 @@ export const handler = async (event) => {
     || process.env.VITE_SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseKey) {
-    return { statusCode: 500, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Missing Supabase env vars' }) }
+    return { statusCode: 500, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Missing Supabase env vars' }) }
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } })
 
-  // Auth
   const token = event.headers.authorization?.replace('Bearer ', '')
   if (!token) return { statusCode: 401, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorized' }) }
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) return { statusCode: 401, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Invalid session' }) }
 
-  // Shopify connection
+  // ── Phase 1: clean bad fallback text stored in DB ─────────────────────────
+  const [cleanName, cleanEmail] = await Promise.all([
+    supabase.from('shopify_orders')
+      .update({ customer_name: null })
+      .eq('user_id', user.id)
+      .eq('customer_name', 'Cliente desconocido'),
+    supabase.from('shopify_orders')
+      .update({ customer_email: null })
+      .eq('user_id', user.id)
+      .eq('customer_email', ''),
+  ])
+
+  console.log('[resync] phase 1 — cleanup:',
+    'name error:', cleanName.error?.message || 'ok',
+    '| email error:', cleanEmail.error?.message || 'ok')
+
+  // ── Phase 2: repopulate from Shopify ─────────────────────────────────────
   const { data: conn } = await supabase
     .from('shopify_connections')
     .select('shop_domain, access_token')
@@ -70,17 +81,16 @@ export const handler = async (event) => {
     .maybeSingle()
 
   if (!conn) {
-    return { statusCode: 404, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'No active Shopify connection' }) }
+    return { statusCode: 200, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cleaned: true, updated: 0, note: 'No active Shopify connection — cleanup done but no resync' }) }
   }
 
   const shopDomain  = conn.shop_domain
   const accessToken = conn.access_token.trim()
   const startTime   = Date.now()
 
-  // Detect whether customer_phone column exists
   const { error: phoneColErr } = await supabase.from('shopify_orders').select('customer_phone').limit(0)
   const hasPhoneCol = !phoneColErr
-  console.log('[resync-customers] customer_phone column exists:', hasPhoneCol)
 
   let totalUpdated = 0
   let page = 0
@@ -88,45 +98,34 @@ export const handler = async (event) => {
 
   while (nextUrl) {
     if (Date.now() - startTime > 8500) {
-      console.log('[resync-customers] time guard hit at', Date.now() - startTime, 'ms')
+      console.log('[resync] time guard at', Date.now() - startTime, 'ms —', totalUpdated, 'updated so far')
       break
     }
 
     page++
     const res = await fetch(nextUrl, { headers: { 'X-Shopify-Access-Token': accessToken } })
-    if (!res.ok) {
-      console.error('[resync-customers] Shopify error', res.status)
-      break
-    }
+    if (!res.ok) { console.error('[resync] Shopify', res.status); break }
 
     const { orders = [] } = await res.json()
-
-    // Log sample from first page so we can debug what Shopify returns
-    if (page === 1 && orders.length > 0) {
-      const s = orders[0]
-      console.log('[resync-customers] sample order[0]:', JSON.stringify({
-        id:           s.id,
-        email:        s.email,
-        customer:     s.customer,
-        billing_name: s.billing_address?.name,
-        billing_phone:s.billing_address?.phone,
-      }, null, 2).slice(0, 800))
-    }
-
     if (!orders.length) break
+
+    // Log sample from first page
+    if (page === 1) {
+      const s = orders[0]
+      console.log('[resync] page 1 sample order', s.id, '→',
+        'customer:', s.customer ? `${s.customer.first_name} ${s.customer.last_name}`.trim() : 'null',
+        '| email:', s.email || s.contact_email || 'null',
+        '| billing_name:', s.billing_address?.name || 'null')
+    }
 
     const updates = orders.map(extractCustomer)
 
-    // Concurrent updates in chunks of 25
+    // Batch update in chunks of 25
     const CHUNK = 25
     for (let i = 0; i < updates.length; i += CHUNK) {
       const chunk = updates.slice(i, i + CHUNK)
       await Promise.all(chunk.map(({ shopify_id, customer_name, customer_email, customer_phone }) => {
-        const patch = {
-          customer_name:  customer_name,
-          customer_email: customer_email,
-          updated_at:     new Date().toISOString(),
-        }
+        const patch = { customer_name, customer_email, updated_at: new Date().toISOString() }
         if (hasPhoneCol) patch.customer_phone = customer_phone
         return supabase
           .from('shopify_orders')
@@ -142,11 +141,11 @@ export const handler = async (event) => {
     nextUrl = match ? match[1] : null
   }
 
-  console.log(`[resync-customers] done: ${totalUpdated} orders in ${Date.now() - startTime}ms`)
+  console.log(`[resync] done — ${totalUpdated} orders updated in ${Date.now() - startTime}ms`)
 
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ updated: totalUpdated, elapsed: Date.now() - startTime }),
+    body: JSON.stringify({ cleaned: true, updated: totalUpdated, elapsed_ms: Date.now() - startTime }),
   }
 }

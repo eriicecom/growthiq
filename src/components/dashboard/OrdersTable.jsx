@@ -109,7 +109,7 @@ export default function OrdersTable({ orders = [], loading = false, hasRealData 
                       {order.order_number || order.id}
                     </td>
                     <td className="px-5 py-3.5 text-sm text-white/80 font-medium">
-                      {order.customer || order.customer_name}
+                      {order.customer || order.customer_name || '—'}
                     </td>
                     <td className="px-5 py-3.5 text-xs text-white/50 max-w-[160px] truncate">{product}</td>
                     <td className="px-5 py-3.5">
