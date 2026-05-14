@@ -13,15 +13,16 @@ import ws from 'ws'
 const API = '2025-07'
 
 function extractCustomer(order) {
-  let name = [order.customer?.first_name || '', order.customer?.last_name || ''].filter(Boolean).join(' ')
-  if (!name) name = [order.billing_address?.first_name || '', order.billing_address?.last_name || ''].filter(Boolean).join(' ')
-  if (!name) name = order.billing_address?.name || ''
-  if (!name) name = order.shipping_address?.name || ''
+  const fn = order.customer?.first_name
+  const ln = order.customer?.last_name
+  const name = (fn && ln)
+    ? (fn + ' ' + ln).trim()
+    : fn || ln || order.billing_address?.name || order.shipping_address?.name || null
 
   return {
     shopify_id:     String(order.id),
-    customer_name:  name.trim() || null,
-    customer_email: order.customer?.email || order.contact_email || order.email || null,
+    customer_name:  name,
+    customer_email: order.customer?.email || order.email || order.contact_email || null,
     customer_phone: order.customer?.phone
       || order.billing_address?.phone
       || order.shipping_address?.phone

@@ -11,11 +11,13 @@ function shopifyError(status) {
 }
 
 function resolveCustomerName(order) {
-  let name = [order.customer?.first_name || '', order.customer?.last_name || ''].filter(Boolean).join(' ')
-  if (!name) name = [order.billing_address?.first_name || '', order.billing_address?.last_name || ''].filter(Boolean).join(' ')
-  if (!name) name = order.billing_address?.name || ''
-  if (!name) name = order.shipping_address?.name || ''
-  return name.trim() || null
+  const fn = order.customer?.first_name
+  const ln = order.customer?.last_name
+  if (fn && ln) return (fn + ' ' + ln).trim()
+  return fn || ln
+    || order.billing_address?.name
+    || order.shipping_address?.name
+    || null
 }
 
 function mapOrder(order, userId, hasPhoneCol = false) {
@@ -23,7 +25,7 @@ function mapOrder(order, userId, hasPhoneCol = false) {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
     customer_name:      resolveCustomerName(order),
-    customer_email:     order.customer?.email || order.contact_email || order.email || null,
+    customer_email:     order.customer?.email || order.email || order.contact_email || null,
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',

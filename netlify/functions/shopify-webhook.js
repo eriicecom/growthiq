@@ -7,25 +7,13 @@ const ALL_TOPICS   = new Set([...ORDER_TOPICS, 'fulfillments/create'])
 
 // Extract customer name using every available field in order of reliability
 function resolveCustomerName(order) {
-  // 1. Customer account (requires read_customers scope)
-  const custFirst = order.customer?.first_name || ''
-  const custLast  = order.customer?.last_name  || ''
-  let name = [custFirst, custLast].filter(Boolean).join(' ')
-
-  // 2. Billing address first/last name — always returned, no scope needed
-  if (!name) {
-    const billFirst = order.billing_address?.first_name || ''
-    const billLast  = order.billing_address?.last_name  || ''
-    name = [billFirst, billLast].filter(Boolean).join(' ')
-  }
-
-  // 3. Billing address.name (pre-formatted full name)
-  if (!name) name = order.billing_address?.name || ''
-
-  // 4. Shipping address
-  if (!name) name = order.shipping_address?.name || ''
-
-  return name.trim() || null
+  const fn = order.customer?.first_name
+  const ln = order.customer?.last_name
+  if (fn && ln) return (fn + ' ' + ln).trim()
+  return fn || ln
+    || order.billing_address?.name
+    || order.shipping_address?.name
+    || null
 }
 
 function mapOrder(order, userId, hasPhoneCol = false) {
@@ -33,7 +21,7 @@ function mapOrder(order, userId, hasPhoneCol = false) {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
     customer_name:      resolveCustomerName(order),
-    customer_email:     order.customer?.email || order.contact_email || order.email || null,
+    customer_email:     order.customer?.email || order.email || order.contact_email || null,
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',
