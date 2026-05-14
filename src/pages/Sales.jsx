@@ -3,7 +3,8 @@ import {
   TrendingUp, TrendingDown, Euro, ShoppingBag, Target, Package,
   CheckCircle2, Clock, XCircle, RotateCcw,
   Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Loader2, AlertCircle,
+  Loader2, AlertCircle, Percent, ArrowDownCircle, Ban, CreditCard,
+  BarChart2, Tag,
 } from 'lucide-react'
 import {
   ResponsiveContainer, ComposedChart, Area, Line,
@@ -166,6 +167,34 @@ function processOrders(allOrders, period) {
     r.ticket_prev = r._pn ? r.ventas_prev / r._pn : 0
   }
 
+  // ── Return / cancellation metrics ────────────────────────────────────────
+  const refOrders  = curr.filter(isRef)
+  const voidOrders = curr.filter(isVoid)
+  const cRefCount  = refOrders.length
+  const cVoidCount = voidOrders.length
+  const cRefAmt    = refOrders.reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
+  const cRefPct    = cCnt ? (cRefCount  / cCnt) * 100 : 0
+  const cVoidPct   = cCnt ? (cVoidCount / cCnt) * 100 : 0
+
+  const pRefCount  = prev.filter(isRef).length
+  const pVoidCount = prev.filter(isVoid).length
+  const pRefAmt    = prev.filter(isRef).reduce((s, o) => s + (parseFloat(o.amount) || 0), 0)
+  const pRefPct    = pCnt ? (pRefCount  / pCnt) * 100 : 0
+  const pVoidPct   = pCnt ? (pVoidCount / pCnt) * 100 : 0
+
+  // ── Channel breakdown ─────────────────────────────────────────────────────
+  const chMap = {}
+  for (const o of curr) {
+    const ch = resolveChannel(o)
+    if (!chMap[ch]) chMap[ch] = { orders: 0, revenue: 0 }
+    chMap[ch].orders += 1
+    if (!isRef(o) && !isVoid(o)) chMap[ch].revenue += parseFloat(o.amount) || 0
+  }
+  const totalChRev = Object.values(chMap).reduce((s, c) => s + c.revenue, 0)
+  const channels = Object.entries(chMap)
+    .map(([name, d]) => ({ name, orders: d.orders, revenue: d.revenue, pct: totalChRev ? (d.revenue / totalChRev) * 100 : 0 }))
+    .sort((a, b) => b.revenue - a.revenue)
+
   // ── Product ranking from line_items ──────────────────────────────────────
   const pMap = {}
   for (const o of curr) {
@@ -186,20 +215,25 @@ function processOrders(allOrders, period) {
 
   return {
     kpis: {
-      ingresos:    { value: cRev,  change: calcPct(cRev,  pRev)  },
-      completados: { value: cDone, change: calcPct(cDone, pDone) },
-      ticket:      { value: cTkt,  change: calcPct(cTkt,  pTkt)  },
-      convRate:    { value: cConv, change: calcPct(cConv, pConv) },
+      ingresos:    { value: cRev,      change: calcPct(cRev,      pRev)      },
+      completados: { value: cDone,     change: calcPct(cDone,     pDone)     },
+      ticket:      { value: cTkt,      change: calcPct(cTkt,      pTkt)      },
+      convRate:    { value: cConv,     change: calcPct(cConv,     pConv)     },
+      refPct:      { value: cRefPct,   change: calcPct(cRefPct,   pRefPct)   },
+      voidPct:     { value: cVoidPct,  change: calcPct(cVoidPct,  pVoidPct)  },
+      refAmt:      { value: cRefAmt,   change: calcPct(cRefAmt,   pRefAmt)   },
     },
     chartData: chartData.map(({ k, pk, _n, _pn, ...rest }) => rest),
     products,
     funnel: {
       completados:  cDone,
       pendientes:   curr.filter(isPending).length,
-      cancelados:   curr.filter(isVoid).length,
-      reembolsados: curr.filter(isRef).length,
+      cancelados:   cVoidCount,
+      reembolsados: cRefCount,
       total: cCnt,
     },
+    channels,
+    refundedOrders: refOrders,
     orders: curr,
     hasData: allOrders.length > 0,
   }
@@ -233,10 +267,14 @@ const KPI_COLORS = {
   emerald: 'bg-emerald-500/10 text-emerald-400',
   violet:  'bg-violet-500/10  text-violet-400',
   teal:    'bg-teal-500/10    text-teal-400',
+  orange:  'bg-orange-500/10  text-orange-400',
+  red:     'bg-red-500/10     text-red-400',
+  rose:    'bg-rose-500/10    text-rose-400',
+  amber:   'bg-amber-500/10   text-amber-400',
 }
 
-function KPICard({ title, value, change, icon: Icon, color = 'brand', isMoney, isPercent, symbol, convert, loading }) {
-  const isGood = change >= 0
+function KPICard({ title, value, change, icon: Icon, color = 'brand', isMoney, isPercent, symbol, convert, loading, inverseColors, unavailable }) {
+  const isGood = inverseColors ? change <= 0 : change >= 0
   const fmt = () => {
     if (isPercent) return `${value.toFixed(1)}%`
     if (isMoney) {
@@ -256,6 +294,11 @@ function KPICard({ title, value, change, icon: Icon, color = 'brand', isMoney, i
       </div>
       {loading ? (
         <div className="space-y-2"><Sk className="h-7 w-28" /><Sk className="h-3.5 w-20" /></div>
+      ) : unavailable ? (
+        <div>
+          <p className="text-2xl font-semibold text-white/20 tracking-tight">—</p>
+          <p className="text-xs text-white/30 mt-1.5">Sin datos disponibles</p>
+        </div>
       ) : (
         <div>
           <p className="text-2xl font-semibold text-white tracking-tight">{fmt()}</p>
@@ -568,6 +611,118 @@ function SalesTable({ orders, symbol, convert, loading }) {
   )
 }
 
+// ── Return analysis ───────────────────────────────────────────────────────────
+function ReturnAnalysis({ refundedOrders, refAmt, refPct, symbol, convert, loading }) {
+  const { timezone } = useStoreSettings()
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? refundedOrders : refundedOrders.slice(0, 5)
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Análisis de Devoluciones</h3>
+          <p className="text-xs text-white/40 mt-0.5">Pedidos reembolsados en el período</p>
+        </div>
+        <ArrowDownCircle size={15} className="text-orange-400/60" />
+      </div>
+
+      {loading ? (
+        <div className="p-5 space-y-3">{[1,2,3].map(i => <Sk key={i} className="h-9 w-full" />)}</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 divide-x divide-white/5 border-b border-white/5">
+            {[
+              { label: 'Pedidos devueltos', value: refundedOrders.length, fmt: v => v },
+              { label: 'Tasa devolución',   value: refPct,                fmt: v => `${v.toFixed(1)}%` },
+              { label: 'Importe reembolsado', value: refAmt,              fmt: v => fmtMoney(v, symbol, convert), money: true },
+            ].map(({ label, value, fmt }) => (
+              <div key={label} className="px-5 py-4 text-center">
+                <p className="text-lg font-semibold text-white">{fmt(value)}</p>
+                <p className="text-[11px] text-white/40 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {refundedOrders.length === 0 ? (
+            <div className="flex items-center justify-center py-10 text-sm text-white/30">Sin devoluciones en el período</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-[1fr_100px_100px_90px] px-5 py-2.5 border-b border-white/5">
+                {['Pedido','Cliente','Importe','Fecha'].map(h => (
+                  <p key={h} className="text-[11px] font-semibold text-white/30 uppercase tracking-wide">{h}</p>
+                ))}
+              </div>
+              {visible.map(o => (
+                <div key={o.shopify_id} className="grid grid-cols-[1fr_100px_100px_90px] px-5 py-3 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors items-center">
+                  <p className="text-xs font-mono text-orange-400">{o.order_number}</p>
+                  <p className="text-xs text-white/60 truncate">{o.customer_name || '—'}</p>
+                  <p className="text-xs font-semibold text-white">{fmtMoney(parseFloat(o.amount || 0), symbol, convert)}</p>
+                  <p className="text-xs text-white/40">{fmtDateUtil(o.shopify_created_at, timezone)}</p>
+                </div>
+              ))}
+              {refundedOrders.length > 5 && (
+                <button
+                  onClick={() => setShowAll(v => !v)}
+                  className="w-full py-3 flex items-center justify-center gap-1 text-xs text-orange-400/60 hover:text-orange-400 transition-colors border-t border-white/5"
+                >
+                  {showAll
+                    ? <><ChevronUp size={13} /> Ver menos</>
+                    : <><ChevronDown size={13} /> Ver todos ({refundedOrders.length})</>}
+                </button>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Channel breakdown ─────────────────────────────────────────────────────────
+function ChannelBreakdown({ channels, symbol, convert, loading }) {
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Desglose por Canal</h3>
+          <p className="text-xs text-white/40 mt-0.5">Ingresos y pedidos por canal de adquisición</p>
+        </div>
+        <BarChart2 size={15} className="text-white/30" />
+      </div>
+
+      {loading ? (
+        <div className="p-5 space-y-3">{[1,2,3,4].map(i => <Sk key={i} className="h-10 w-full" />)}</div>
+      ) : channels.length === 0 ? (
+        <div className="flex items-center justify-center py-10 text-sm text-white/30">Sin datos de canal</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-[1fr_72px_112px_64px] px-5 py-2.5 border-b border-white/5">
+            {['Canal','Pedidos','Ingresos','% Total'].map(h => (
+              <p key={h} className="text-[11px] font-semibold text-white/30 uppercase tracking-wide">{h}</p>
+            ))}
+          </div>
+          {channels.map(ch => (
+            <div key={ch.name} className="grid grid-cols-[1fr_72px_112px_64px] px-5 py-3.5 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${CHANNEL_CLS[ch.name] ?? 'bg-white/5 text-white/40'}`}>{ch.name}</span>
+                </div>
+                <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-brand-500/40 rounded-full" style={{ width: `${ch.pct}%` }} />
+                </div>
+              </div>
+              <p className="text-xs text-white/60">{ch.orders.toLocaleString('es-ES')}</p>
+              <p className="text-xs font-semibold text-white">{fmtMoney(ch.revenue, symbol, convert)}</p>
+              <p className="text-xs text-white/50">{ch.pct.toFixed(1)}%</p>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Page loading skeleton ─────────────────────────────────────────────────────
 function PageSkeleton() {
   return (
@@ -646,7 +801,7 @@ export default function Sales() {
     )
   }
 
-  const { kpis, chartData, products, funnel, orders } = salesData
+  const { kpis, chartData, products, funnel, channels, refundedOrders, orders } = salesData
   const kpiPeriod = PERIODS.find(p => p.value === String(days))?.label ?? `${days} días`
 
   return (
@@ -678,12 +833,20 @@ export default function Sales() {
         </div>
       </div>
 
-      {/* ── KPIs ───────────────────────────────────────────────────────────── */}
+      {/* ── KPIs row 1 ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KPICard title="Ingresos Totales"    value={kpis.ingresos.value}    change={kpis.ingresos.change}    icon={Euro}         color="brand"   isMoney    symbol={symbol} convert={convert} />
         <KPICard title="Pedidos Completados" value={kpis.completados.value} change={kpis.completados.change} icon={CheckCircle2} color="emerald"            symbol={symbol} convert={convert} />
         <KPICard title="Ticket Medio"        value={kpis.ticket.value}      change={kpis.ticket.change}      icon={TrendingUp}   color="violet"  isMoney    symbol={symbol} convert={convert} />
         <KPICard title="Tasa de Completados" value={kpis.convRate.value}    change={kpis.convRate.change}    icon={Target}       color="teal"    isPercent  symbol={symbol} convert={convert} />
+      </div>
+
+      {/* ── KPIs row 2 ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KPICard title="Tasa de Devoluciones" value={kpis.refPct.value}  change={kpis.refPct.change}  icon={ArrowDownCircle} color="orange" isPercent inverseColors symbol={symbol} convert={convert} />
+        <KPICard title="Tasa de Cancelación"  value={kpis.voidPct.value} change={kpis.voidPct.change} icon={Ban}             color="red"    isPercent inverseColors symbol={symbol} convert={convert} />
+        <KPICard title="Importe Reembolsado"  value={kpis.refAmt.value}  change={kpis.refAmt.change}  icon={CreditCard}      color="rose"   isMoney   inverseColors symbol={symbol} convert={convert} />
+        <KPICard title="Descuentos Totales"   value={0}                  change={0}                   icon={Tag}             color="amber"  isMoney   unavailable   symbol={symbol} convert={convert} />
       </div>
 
       {/* ── Main chart ─────────────────────────────────────────────────────── */}
@@ -719,6 +882,12 @@ export default function Sales() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ProductsRanking products={products} symbol={symbol} convert={convert} loading={false} />
         <OrderFunnel funnel={funnel} loading={false} />
+      </div>
+
+      {/* ── Return analysis + Channel breakdown ───────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ReturnAnalysis refundedOrders={refundedOrders} refAmt={kpis.refAmt.value} refPct={kpis.refPct.value} symbol={symbol} convert={convert} loading={false} />
+        <ChannelBreakdown channels={channels} symbol={symbol} convert={convert} loading={false} />
       </div>
 
       {/* ── Detailed table ─────────────────────────────────────────────────── */}
