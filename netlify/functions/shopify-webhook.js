@@ -49,10 +49,10 @@ function mapOrder(order, userId, hasPhoneCol = false) {
 // Webhook payloads intentionally omit customer details.
 async function fetchFullOrder(shopDomain, accessToken, orderId) {
   try {
+    // No ?fields= restriction — fetch the complete order so Shopify returns all
+    // customer subfields (first_name, last_name, email, phone, billing_address…).
     const res = await fetch(
-      `https://${shopDomain}/admin/api/${API}/orders/${orderId}.json` +
-      `?fields=id,order_number,email,contact_email,customer,billing_address,shipping_address,` +
-      `total_price,currency,financial_status,fulfillment_status,line_items,source_name,created_at`,
+      `https://${shopDomain}/admin/api/${API}/orders/${orderId}.json`,
       { headers: { 'X-Shopify-Access-Token': accessToken } }
     )
     if (!res.ok) {
@@ -60,6 +60,13 @@ async function fetchFullOrder(shopDomain, accessToken, orderId) {
       return null
     }
     const { order } = await res.json()
+    console.log('[webhook] enrichment sample — customer:', JSON.stringify({
+      first_name:   order?.customer?.first_name,
+      last_name:    order?.customer?.last_name,
+      email:        order?.customer?.email,
+      order_email:  order?.email,
+      billing_name: order?.billing_address?.name,
+    }))
     return order || null
   } catch (err) {
     console.warn('[webhook] enrichment call error:', err.message)

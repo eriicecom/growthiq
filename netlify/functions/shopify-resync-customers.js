@@ -87,12 +87,18 @@ export const handler = async (event) => {
   const accessToken = conn.access_token.trim()
   const startTime   = Date.now()
 
+  // Optional ?limit=N query param to resync only the last N orders (e.g. ?limit=20)
+  const bodyRaw = event.body ? JSON.parse(event.body).limit : null
+  const urlLimit = new URL('https://x.x' + (event.rawUrl || '/')).searchParams.get('limit')
+  const maxOrders = parseInt(bodyRaw || urlLimit || '0', 10) || 0
+
   const { error: phoneColErr } = await supabase.from('shopify_orders').select('customer_phone').limit(0)
   const hasPhoneCol = !phoneColErr
 
   let totalUpdated = 0
   let page = 0
-  let nextUrl = `https://${shopDomain}/admin/api/${API}/orders.json?status=any&limit=250`
+  const pageSize = maxOrders > 0 ? Math.min(maxOrders, 250) : 250
+  let nextUrl = `https://${shopDomain}/admin/api/${API}/orders.json?status=any&limit=${pageSize}`
 
   while (nextUrl) {
     if (Date.now() - startTime > 8500) {
@@ -133,6 +139,9 @@ export const handler = async (event) => {
       }))
       totalUpdated += chunk.length
     }
+
+    // Stop after first page when a maxOrders limit was requested
+    if (maxOrders > 0) break
 
     const link  = res.headers.get('link') || ''
     const match = link.match(/<([^>]+)>; rel="next"/)
