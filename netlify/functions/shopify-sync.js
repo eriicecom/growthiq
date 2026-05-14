@@ -10,18 +10,19 @@ function shopifyError(status) {
   return `Shopify devolvió ${status}.`
 }
 
-function mapOrder(order, userId, hasPhoneCol = false) {
-  const firstName = order.customer?.first_name || ''
-  const lastName  = order.customer?.last_name  || ''
-  let customerName = [firstName, lastName].filter(Boolean).join(' ')
-  if (!customerName) {
-    customerName = order.billing_address?.name || order.shipping_address?.name || ''
-  }
+function resolveCustomerName(order) {
+  let name = [order.customer?.first_name || '', order.customer?.last_name || ''].filter(Boolean).join(' ')
+  if (!name) name = [order.billing_address?.first_name || '', order.billing_address?.last_name || ''].filter(Boolean).join(' ')
+  if (!name) name = order.billing_address?.name || ''
+  if (!name) name = order.shipping_address?.name || ''
+  return name.trim() || null
+}
 
+function mapOrder(order, userId, hasPhoneCol = false) {
   const row = {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
-    customer_name:      customerName.trim() || null,
+    customer_name:      resolveCustomerName(order),
     customer_email:     order.customer?.email || order.contact_email || order.email || null,
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
