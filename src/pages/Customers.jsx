@@ -73,7 +73,7 @@ function processCustomers(allOrders, period) {
     if (!map[email]) {
       map[email] = {
         email,
-        name:         o.customer_name || 'Cliente desconocido',
+        name:         o.customer_name || '—',
         allOrders:    [],
         currOrders:   [],
         prevOrders:   [],

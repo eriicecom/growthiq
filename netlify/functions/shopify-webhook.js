@@ -5,15 +5,14 @@ const API = '2025-07'
 const ORDER_TOPICS = new Set(['orders/create', 'orders/updated', 'orders/paid'])
 const ALL_TOPICS   = new Set([...ORDER_TOPICS, 'fulfillments/create'])
 
-// Extract customer name using every available field in order of reliability
+// The webhook payload includes full PII (first_name, last_name, email, phone,
+// billing_address) even on basic Shopify plans. The REST API does NOT.
+// Always map from the raw webhook payload — never make a second API call.
 function resolveCustomerName(order) {
-  const fn = order.customer?.first_name
-  const ln = order.customer?.last_name
-  if (fn && ln) return (fn + ' ' + ln).trim()
-  return fn || ln
-    || order.billing_address?.name
-    || order.shipping_address?.name
-    || null
+  const fn = (order.customer?.first_name || '').trim()
+  const ln = (order.customer?.last_name  || '').trim()
+  const fullName = [fn, ln].filter(Boolean).join(' ')
+  return fullName || order.billing_address?.name || null
 }
 
 function mapOrder(order, userId, hasPhoneCol = false) {
@@ -37,41 +36,9 @@ function mapOrder(order, userId, hasPhoneCol = false) {
     user_id:            userId,
   }
   if (hasPhoneCol) {
-    row.customer_phone = order.customer?.phone
-      || order.billing_address?.phone
-      || order.shipping_address?.phone
-      || null
+    row.customer_phone = order.customer?.phone || order.billing_address?.phone || null
   }
   return row
-}
-
-// Fetch the full order from Shopify to get complete customer data.
-// Webhook payloads intentionally omit customer details.
-async function fetchFullOrder(shopDomain, accessToken, orderId) {
-  try {
-    // No ?fields= restriction — fetch the complete order so Shopify returns all
-    // customer subfields (first_name, last_name, email, phone, billing_address…).
-    const res = await fetch(
-      `https://${shopDomain}/admin/api/${API}/orders/${orderId}.json`,
-      { headers: { 'X-Shopify-Access-Token': accessToken } }
-    )
-    if (!res.ok) {
-      console.warn('[webhook] enrichment call failed:', res.status)
-      return null
-    }
-    const { order } = await res.json()
-    console.log('[webhook] enrichment sample — customer:', JSON.stringify({
-      first_name:   order?.customer?.first_name,
-      last_name:    order?.customer?.last_name,
-      email:        order?.customer?.email,
-      order_email:  order?.email,
-      billing_name: order?.billing_address?.name,
-    }))
-    return order || null
-  } catch (err) {
-    console.warn('[webhook] enrichment call error:', err.message)
-    return null
-  }
 }
 
 export const handler = async (event) => {
@@ -108,10 +75,9 @@ export const handler = async (event) => {
     return { statusCode: 400, body: 'Missing shop domain header' }
   }
 
-  // Fetch user_id AND access_token so we can enrich with a second API call
   const { data: conn } = await supabase
     .from('shopify_connections')
-    .select('user_id, access_token')
+    .select('user_id')
     .eq('shop_domain', shopDomain)
     .limit(1)
     .maybeSingle()
@@ -139,18 +105,21 @@ export const handler = async (event) => {
     return { statusCode: 200, body: JSON.stringify({ received: true }) }
   }
 
-  // ── orders/* — fetch full order first, then upsert ────────────────────────
-  // Webhook payloads omit customer.first_name, billing_address etc.
-  // A single GET to orders/{id}.json fills in all customer data.
-  const orderId   = String(payload.id)
-  const fullOrder = conn.access_token
-    ? await fetchFullOrder(shopDomain, conn.access_token, orderId)
-    : null
+  // ── orders/* — map directly from webhook payload ──────────────────────────
+  // The webhook payload contains full PII. Log it before mapping.
+  if (ORDER_TOPICS.has(topic)) {
+    console.log('[webhook] customer payload:', JSON.stringify({
+      customer_first: payload.customer?.first_name,
+      customer_last:  payload.customer?.last_name,
+      customer_email: payload.customer?.email,
+      customer_phone: payload.customer?.phone,
+      order_email:    payload.email,
+      billing_name:   payload.billing_address?.name,
+      billing_phone:  payload.billing_address?.phone,
+    }))
+  }
 
-  // Use enriched order if available, fall back to webhook payload
-  const orderData = fullOrder ?? payload
-
-  const mapped = mapOrder(orderData, conn.user_id, hasPhoneCol)
+  const mapped = mapOrder(payload, conn.user_id, hasPhoneCol)
   const { error: upsertErr } = await supabase
     .from('shopify_orders')
     .upsert(mapped, { onConflict: 'user_id,shopify_id', ignoreDuplicates: false })
@@ -161,9 +130,8 @@ export const handler = async (event) => {
   }
 
   console.log(
-    `[webhook] ${topic} | order: ${orderId}` +
-    ` | customer: ${mapped.customer_name ?? 'null'} <${mapped.customer_email ?? 'null'}>` +
-    ` | enriched: ${!!fullOrder}` +
+    `[webhook] ${topic} | order: ${payload.id}` +
+    ` | customer: "${mapped.customer_name ?? 'null'}" <${mapped.customer_email ?? 'null'}>` +
     ` | status: ${mapped.financial_status}/${mapped.fulfillment_status}` +
     ` | user: ${conn.user_id}`
   )

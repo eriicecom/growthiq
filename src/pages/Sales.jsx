@@ -210,7 +210,7 @@ function exportToCSV(orders, timezone) {
   const rows = orders.map(o => [
     fmtDateUtil(o.shopify_created_at, timezone),
     o.order_number || '',
-    o.customer_name || '',
+    o.customer_name || '—',
     o.customer_email || '',
     parseFloat(o.amount || 0).toFixed(2),
     o.currency || '',
