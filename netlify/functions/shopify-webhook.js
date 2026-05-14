@@ -17,7 +17,7 @@ function mapOrder(order, userId, hasPhoneCol = false) {
     shopify_id:         String(order.id),
     order_number:       `#${order.order_number}`,
     customer_name:      customerName || 'Cliente desconocido',
-    customer_email:     order.customer?.email || order.email || '',
+    customer_email:     order.customer?.email || order.contact_email || order.email || '',
     amount:             parseFloat(order.total_price) || 0,
     currency:           order.currency || 'EUR',
     financial_status:   order.financial_status  || 'pending',

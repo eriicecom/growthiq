@@ -20,10 +20,16 @@ function extractCustomer(order) {
       || ''
   }
 
+  // contact_email is Shopify's primary email field in newer API versions
+  const email = order.customer?.email
+    || order.contact_email
+    || order.email
+    || null
+
   return {
     shopify_id:     String(order.id),
-    customer_name:  customerName || null,
-    customer_email: order.customer?.email || order.email || null,
+    customer_name:  customerName || 'Cliente desconocido',
+    customer_email: email,
     customer_phone: order.customer?.phone
       || order.billing_address?.phone
       || order.shipping_address?.phone
